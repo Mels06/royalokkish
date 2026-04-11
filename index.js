@@ -154,11 +154,11 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     const s = getStats();
     return sendMessage(chatId,
       `📈 *TABLEAU DE BORD*\n\n` +
-      `💰 CA total : *${s.ca} €*\n` +
-      `📦 Coût achats : ${s.cout_achats} €\n` +
-      `✅ Bénéfice brut : *${s.benefice_brut} €*\n` +
-      `📊 Charges : ${s.total_charges} €\n` +
-      `🏆 Bénéfice net : *${s.benefice_net} €*\n\n` +
+      `💰 CA total : *${s.ca} FCFA*\n` +
+      `📦 Coût achats : ${s.cout_achats} FCFA\n` +
+      `✅ Bénéfice brut : *${s.benefice_brut} FCFA*\n` +
+      `📊 Charges : ${s.total_charges} FCFA\n` +
+      `🏆 Bénéfice net : *${s.benefice_net} FCFA*\n\n` +
       `🛍️ Produits : ${s.nb_produits}\n` +
       `👥 Clients : ${s.nb_clients}\n` +
       `🛒 Ventes : ${s.nb_ventes}\n` +
@@ -210,7 +210,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
       const statut = p.stock === 0 ? "🔴" : p.stock <= 5 ? "🟡" : "🟢";
       msg += `${statut} *${p.nom}*\n`;
-      msg += `   Achat: ${p.prix_achat}€ | Vente: ${p.prix_vente}€ | Marge: ${marge}€ (${taux}%)\n`;
+      msg += `   Achat: ${p.prix_achat}FCFA | Vente: ${p.prix_vente}FCFA | Marge: ${marge}FCFA (${taux}%)\n`;
       msg += `   Stock: ${p.stock} unités\n\n`;
     });
 
@@ -250,7 +250,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       msg += `👤 *${c.nom}*\n`;
       if (c.email) msg += `   📧 ${c.email}\n`;
       if (c.telephone) msg += `   📱 ${c.telephone}\n`;
-      msg += `   🛒 ${ventes_client.length} achat(s) — CA: ${ca.toFixed(2)}€\n\n`;
+      msg += `   🛒 ${ventes_client.length} achat(s) — CA: ${ca.toFixed(2)}FCFA\n\n`;
     });
 
     return sendMessage(chatId, msg, {
@@ -285,7 +285,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     let msg = `💰 *VENTES (${db.ventes.length})*\n\n`;
     db.ventes.slice(0, 10).forEach(v => {
       msg += `🛒 *${v.produit_nom}* x${v.quantite}\n`;
-      msg += `   Client: ${v.client_nom} | Total: ${v.montant_total}€ | Marge: ${v.marge_totale}€\n\n`;
+      msg += `   Client: ${v.client_nom} | Total: ${v.montant_total}FCFA | Marge: ${v.marge_totale}FCFA\n\n`;
     });
 
     return sendMessage(chatId, msg, {
@@ -325,9 +325,9 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     }
 
     const total = db.charges.reduce((s, c) => s + c.montant, 0);
-    let msg = `📊 *CHARGES (total: ${total.toFixed(2)}€)*\n\n`;
+    let msg = `📊 *CHARGES (total: ${total.toFixed(2)}FCFA)*\n\n`;
     db.charges.forEach(c => {
-      msg += `• *${c.label}* — ${c.montant}€ (${c.categorie})\n`;
+      msg += `• *${c.label}* — ${c.montant}FCFA (${c.categorie})\n`;
     });
 
     return sendMessage(chatId, msg, {
@@ -378,7 +378,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (session.etape === "produit_nom") {
     session.data.nom = text;
     session.etape = "produit_achat";
-    return sendMessage(chatId, `💵 Prix d'*achat* (€) :`, {
+    return sendMessage(chatId, `💵 Prix d'*achat* (FCFA) :`, {
       reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true }
     });
   }
@@ -388,7 +388,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     if (isNaN(val)) return sendMessage(chatId, `⚠️ Entrez un nombre valide.`);
     session.data.prix_achat = val;
     session.etape = "produit_vente";
-    return sendMessage(chatId, `💰 Prix de *vente* (€) :`);
+    return sendMessage(chatId, `💰 Prix de *vente* (FCFA) :`);
   }
 
   if (session.etape === "produit_vente") {
@@ -443,8 +443,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     return sendMessage(chatId,
       `✅ *Produit ajouté !*\n\n` +
       `📦 ${produit.nom}\n` +
-      `💵 Achat: ${produit.prix_achat}€ | Vente: ${produit.prix_vente}€\n` +
-      `📈 Marge: *${marge}€ (${taux}%)*\n` +
+      `💵 Achat: ${produit.prix_achat}FCFA | Vente: ${produit.prix_vente}FCFA\n` +
+      `📈 Marge: *${marge}FCFA (${taux}%)*\n` +
       `🗃️ Stock: ${produit.stock} unités`,
       { reply_markup: menuPrincipal() }
     );
@@ -588,8 +588,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     let reponse = `✅ *Vente enregistrée !*\n\n` +
       `🛒 ${produit.nom} x${qte}\n` +
       `👤 Client: ${vente.client_nom}\n` +
-      `💰 Total: *${montant_total}€*\n` +
-      `📈 Marge: *${marge_totale}€*\n` +
+      `💰 Total: *${montant_total}FCFA*\n` +
+      `📈 Marge: *${marge_totale}FCFA*\n` +
       `📦 Stock restant: ${produit.stock}`;
 
     if (produit.stock <= 5) {
@@ -603,7 +603,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (session.etape === "charge_label") {
     session.data.label = text;
     session.etape = "charge_montant";
-    return sendMessage(chatId, `💵 *Montant* (€) :`, {
+    return sendMessage(chatId, `💵 *Montant* (FCFA) :`, {
       reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true }
     });
   }
@@ -643,7 +643,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     session.data = {};
 
     return sendMessage(chatId,
-      `✅ *Charge enregistrée !*\n\n📊 ${charge.label}\n💵 ${charge.montant}€ (${charge.categorie})`,
+      `✅ *Charge enregistrée !*\n\n📊 ${charge.label}\n💵 ${charge.montant}FCFA (${charge.categorie})`,
       { reply_markup: menuPrincipal() }
     );
   }
