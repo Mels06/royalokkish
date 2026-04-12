@@ -225,10 +225,16 @@ function initGoogleCalendar() {
 }
 
 async function creerEventGoogleCalendar(titre, dateISO) {
-  if (!calendar || !CALENDAR_ID) return null;
+  console.log("📅 Tentative ajout agenda : " + titre + " — " + dateISO);
+  console.log("📅 calendar initialisé : " + !!calendar + " | CALENDAR_ID : " + (CALENDAR_ID || "MANQUANT"));
+  if (!calendar || !CALENDAR_ID) {
+    console.error("❌ Calendar non prêt — calendar: " + !!calendar + " | CALENDAR_ID: " + CALENDAR_ID);
+    return null;
+  }
   try {
     const dateDebut = new Date(dateISO);
     const dateFin = new Date(dateDebut.getTime() + 60 * 60 * 1000);
+    console.log("📅 Début : " + dateDebut.toISOString() + " | Fin : " + dateFin.toISOString());
     const event = {
       summary: titre,
       start: { dateTime: dateDebut.toISOString(), timeZone: "Africa/Porto-Novo" },
@@ -236,8 +242,13 @@ async function creerEventGoogleCalendar(titre, dateISO) {
       reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 24 * 60 }, { method: "popup", minutes: 60 }, { method: "popup", minutes: 30 }, { method: "email", minutes: 24 * 60 }] },
     };
     const response = await calendar.events.insert({ calendarId: CALENDAR_ID, resource: event });
+    console.log("✅ Événement Google Calendar créé : " + response.data.id);
     return response.data;
-  } catch (err) { console.error("Erreur Calendar :", err.message); return null; }
+  } catch (err) {
+    console.error("❌ Erreur Calendar : " + err.message);
+    if (err.response) console.error("❌ Réponse API : " + JSON.stringify(err.response.data));
+    return null;
+  }
 }
 
 async function supprimerEventGoogleCalendar(googleEventId) {
@@ -453,6 +464,27 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
   }
 
   return { vente, produit, client, alerte: produit.stock <= 5, reductionAppliquee, montantReduction, etuiOffert };
+}
+
+// ─────────────────────────────────────────
+// FINALISER UNE VENTE (partagé entre vente_client et nouveau_client)
+// ─────────────────────────────────────────
+async function finaliserVente(chatId, session, clientNom) {
+  const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom);
+  session.etape = null; session.data = {};
+  if (result.erreur) return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
+  let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
+  if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité -10% appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
+  if (result.etuiOffert) {
+    if (result.etuiOffert.erreur) {
+      rep += `\n\n⚠️ *Étui non inclus* — stock insuffisant (${result.etuiOffert.stock} dispo)`;
+    } else {
+      rep += `\n\n🕶️ *Étui offert !* — ${result.etuiOffert.nom} déduit du stock`;
+      if (result.etuiOffert.alerte) rep += `\n⚠️ Stock étuis bas (${result.etuiOffert.stock_restant} restant(s))`;
+    }
+  }
+  if (result.alerte) rep += `\n\n⚠️ *Stock lunettes bas !*`;
+  return sendMessage(chatId, rep, { reply_markup: menuVentes() });
 }
 
 // ─────────────────────────────────────────
@@ -781,7 +813,10 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [{ role: "user", content: [
-          { type: "text", text: `Extrait les ventes. JSON uniquement :\n[{"produit":"nom","quantite":1,"client":"nom ou vide","prix":0}]\nSi prix non visible mets 0.` },
+          { type: "text", text: `Extrait toutes les informations de ventes visibles sur cette image pour une boutique de lunettes au Bénin.
+Réponds UNIQUEMENT avec ce JSON :
+[{"produit":"nom du produit","quantite":1,"client":"nom ou null","telephone":"numéro ou null","email":"email ou null","prix":0}]
+Si prix non visible mets 0. Si plusieurs ventes, plusieurs objets.` },
           { type: "image_url", image_url: { url: `data:image/jpeg;base64,${base64}` } }
         ]}],
         max_tokens: 500,
@@ -791,6 +826,23 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       catch { return sendMessage(chatId, `❌ Image illisible.`, { reply_markup: menuVentes() }); }
       let resultMsg = `✅ *${ventes_data.length} vente(s) :*\n\n`; let totalCA = 0;
       for (const v of ventes_data) {
+        // Créer la fiche client si nouveau et infos disponibles
+        if (v.client && (v.telephone || v.email)) {
+          const existe = db.clients.find(c => c.nom.toLowerCase().includes(v.client.toLowerCase()));
+          if (!existe) {
+            const nc = {
+              id: genId(), nom: v.client.trim(), email: v.email || "", telephone: v.telephone || "",
+              note: "Créé via photo vente", nb_achats: 0, ca_total: 0,
+              carte_envoyee: false, derniere_visite: new Date().toISOString(), cree_le: new Date().toISOString(),
+            };
+            db.clients.push(nc);
+            await envoyerVersSheets("nouveau_client", { nom: nc.nom, email: nc.email, telephone: nc.telephone, note: nc.note, date: new Date().toLocaleString("fr-FR") });
+            if (nc.email) { const envoye = await envoyerCarteFidelite(nc); nc.carte_envoyee = envoye; }
+          } else {
+            if (v.telephone && !existe.telephone) existe.telephone = v.telephone;
+            if (v.email && !existe.email) existe.email = v.email;
+          }
+        }
         const result = await enregistrerVenteComplete(v.produit, v.quantite || 1, v.client || null, v.prix || null);
         if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
         else {
@@ -958,11 +1010,18 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     if (qte > session.data.produit.stock) return sendMessage(chatId, `⚠️ Max: ${session.data.produit.stock}`);
     session.data.quantite = qte; session.etape = "vente_client";
-    const b = db.clients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]); b.push(["Anonyme"], ["❌ Annuler"]);
-    return sendMessage(chatId, `👤 Client ?\n_(⭐ = réduction -10% active)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    const b = db.clients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
+    b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+    return sendMessage(chatId, `👤 Client ?\n⭐ = réduction -10% | ➕ = nouveau client`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_client") {
     const clientNom = text.replace("⭐ ", "").trim();
+
+    // Nouveau client → collecter les infos
+    if (clientNom === "➕ Nouveau client") {
+      session.etape = "vente_nouveau_client_nom";
+      return sendMessage(chatId, `👤 *Nouveau client*\n\nNom complet :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
 
     // Afficher statut fidélité AVANT d'enregistrer
     if (clientNom !== "Anonyme") {
@@ -977,7 +1036,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
           : null;
         let statutMsg = `👤 *${clientCheck.nom}*\n`;
         statutMsg += `🛒 ${clientCheck.nb_achats} achat(s) | 💰 ${clientCheck.ca_total} FCFA\n`;
-        if (jours !== null) statutMsg += `📅 Dernier achat : ${jours === 0 ? "aujourd'hui" : `il y a ${jours} jour(s)`}\n`;
+        if (jours !== null) statutMsg += `📅 Dernier achat : ${jours === 0 ? "aujourd\'hui" : `il y a ${jours} jour(s)`}\n`;
         statutMsg += eligible
           ? `\n🎁 *Réduction -10% ACTIVE* — sera appliquée automatiquement sur cette vente`
           : `\nℹ️ Pas de réduction (encore ${restant} achat(s) pour y avoir droit)`;
@@ -985,21 +1044,43 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       }
     }
 
-    const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom === "Anonyme" ? null : clientNom);
-    session.etape = null; session.data = {};
-    if (result.erreur) return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
-    let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
-    if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité -10% appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
-    if (result.etuiOffert) {
-      if (result.etuiOffert.erreur) {
-        rep += `\n\n⚠️ *Étui non inclus* — stock insuffisant (${result.etuiOffert.stock} dispo)`;
-      } else {
-        rep += `\n\n🕶️ *Étui offert !* — ${result.etuiOffert.nom} déduit du stock`;
-        if (result.etuiOffert.alerte) rep += `\n⚠️ Stock étuis bas (${result.etuiOffert.stock_restant} restant(s))`;
-      }
+    await finaliserVente(chatId, session, clientNom === "Anonyme" ? null : clientNom);
+    return;
+  }
+
+  // ── NOUVEAU CLIENT PENDANT UNE VENTE ──
+  if (session.etape === "vente_nouveau_client_nom") {
+    session.data.nouveau_client = { nom: text.trim() };
+    session.etape = "vente_nouveau_client_tel";
+    return sendMessage(chatId, `📱 Téléphone (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "vente_nouveau_client_tel") {
+    session.data.nouveau_client.telephone = text === "skip" ? "" : text.trim();
+    session.etape = "vente_nouveau_client_email";
+    return sendMessage(chatId, `📧 Email (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "vente_nouveau_client_email") {
+    session.data.nouveau_client.email = text === "skip" ? "" : text.trim();
+
+    // Créer le client
+    const nc = session.data.nouveau_client;
+    const client = {
+      id: genId(), nom: nc.nom, email: nc.email, telephone: nc.telephone,
+      note: "Créé via vente", nb_achats: 0, ca_total: 0,
+      carte_envoyee: false, derniere_visite: new Date().toISOString(), cree_le: new Date().toISOString(),
+    };
+    db.clients.push(client);
+    await envoyerVersSheets("nouveau_client", { nom: client.nom, email: client.email, telephone: client.telephone, note: client.note, date: new Date().toLocaleString("fr-FR") });
+
+    // Envoyer carte fidélité si email
+    if (client.email) {
+      const envoye = await envoyerCarteFidelite(client);
+      client.carte_envoyee = envoye;
     }
-    if (result.alerte) rep += `\n\n⚠️ *Stock lunettes bas !*`;
-    return sendMessage(chatId, rep, { reply_markup: menuVentes() });
+
+    await sendMessage(chatId, `✅ Client *${client.nom}* créé !${client.email ? "\n📧 Carte fidélité envoyée" : ""}`);
+    await finaliserVente(chatId, session, client.nom);
+    return;
   }
 
   // ── VENTE TEXTE — IA extrait les infos dans n'importe quel ordre ──
@@ -1016,21 +1097,23 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
         model: "gpt-4o",
         messages: [{
           role: "user",
-          content: `Tu es un assistant qui extrait des informations de ventes.
+          content: `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
 Produits disponibles : ${produitsDispo || "aucun"}
 Clients connus : ${clientsDispo || "aucun"}
 
-Extrait les ventes de ce texte : "${text}"
+Extrait toutes les ventes de ce texte : "${text}"
 
 Règles :
-- Trouve le produit (cherche le nom le plus proche dans la liste)
-- Trouve la quantité (nombre)
-- Trouve le client si mentionné (nom, prénom ou numéro)
-- Le format peut être dans n'importe quel ordre
+- Trouve le produit (cherche le nom le plus proche dans la liste des produits)
+- Trouve la quantité (nombre, défaut = 1)
+- Trouve le nom du client si mentionné
+- Trouve le téléphone du client si mentionné (numéro)
+- Trouve l'email du client si mentionné
+- Le format peut être dans n'importe quel ordre et en langage naturel
 
-Réponds UNIQUEMENT avec ce JSON :
-[{"produit":"nom exact du produit","quantite":1,"client":"nom ou null"}]
-Si plusieurs ventes, mets plusieurs objets. Rien d'autre que le JSON.`
+Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
+[{"produit":"nom exact du produit","quantite":1,"client":"nom ou null","telephone":"numéro ou null","email":"email ou null"}]
+Si plusieurs ventes, mets plusieurs objets dans le tableau.`
         }],
         max_tokens: 300,
         temperature: 0,
@@ -1046,6 +1129,26 @@ Si plusieurs ventes, mets plusieurs objets. Rien d'autre que le JSON.`
     let resultMsg = "", totalCA = 0, nbOk = 0;
     for (const v of ventesExtraites) {
       if (!v.produit || !v.quantite) continue;
+
+      // Si client avec tel/email fournis et pas encore dans la DB → créer la fiche
+      if (v.client && (v.telephone || v.email)) {
+        const existe = db.clients.find(c => c.nom.toLowerCase().includes(v.client.toLowerCase()));
+        if (!existe) {
+          const nc = {
+            id: genId(), nom: v.client.trim(), email: v.email || "", telephone: v.telephone || "",
+            note: "Créé via vente texte", nb_achats: 0, ca_total: 0,
+            carte_envoyee: false, derniere_visite: new Date().toISOString(), cree_le: new Date().toISOString(),
+          };
+          db.clients.push(nc);
+          await envoyerVersSheets("nouveau_client", { nom: nc.nom, email: nc.email, telephone: nc.telephone, note: nc.note, date: new Date().toLocaleString("fr-FR") });
+          if (nc.email) { const envoye = await envoyerCarteFidelite(nc); nc.carte_envoyee = envoye; }
+        } else {
+          // Mettre à jour tel/email si manquants
+          if (v.telephone && !existe.telephone) existe.telephone = v.telephone;
+          if (v.email && !existe.email) existe.email = v.email;
+        }
+      }
+
       const result = await enregistrerVenteComplete(v.produit, v.quantite, v.client || null);
       if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
       else {
