@@ -889,9 +889,27 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (session.etape === "produit_nom") { session.data.nom = text; session.etape = "produit_achat"; return sendMessage(chatId, `💵 Prix d'achat (FCFA) :`); }
   if (session.etape === "produit_achat") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_achat = v; session.etape = "produit_vente"; return sendMessage(chatId, `💰 Prix de vente (FCFA) :`); }
   if (session.etape === "produit_vente") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_vente = v; session.etape = "produit_stock"; return sendMessage(chatId, `📦 Stock initial :`); }
-  if (session.etape === "produit_stock") { const v = parseInt(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`); session.data.stock = v; session.etape = "produit_categorie"; return sendMessage(chatId, `🏷️ Catégorie :`, { reply_markup: { keyboard: [["Vêtements"], ["Accessoires"], ["Chaussures"], ["Autre"], ["❌ Annuler"]], resize_keyboard: true } }); }
+  if (session.etape === "produit_stock") { const v = parseInt(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`); session.data.stock = v; session.etape = "produit_categorie"; return sendMessage(chatId, `🏷️ Catégorie :`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } }); }
+  if (session.etape === "produit_categorie_preciser") {
+    session.data.categorie = text;
+    session.etape = "produit_categorie";
+    // Forcer la suite avec la catégorie précisée
+    const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie: session.data.categorie, cree_le: new Date().toISOString() };
+    db.produits.push(p); const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
+    await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, date: new Date().toLocaleString("fr-FR") });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *Produit ajouté !*\n📦 ${p.nom}\n💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n📈 Marge: *${marge} FCFA (${taux}%)*\n🗃️ Stock: ${p.stock}\n🏷️ Catégorie: ${p.categorie}`, { reply_markup: menuProduits() });
+  }
+
   if (session.etape === "produit_categorie") {
-    const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie: text, cree_le: new Date().toISOString() };
+    // Si "Autre (préciser)" → demander la précision
+    if (text === "✏️ Autre (préciser)") {
+      session.etape = "produit_categorie_preciser";
+      return sendMessage(chatId, `✏️ Précisez la catégorie :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Nettoyer les emojis pour la catégorie
+    const categorie = text.replace("🕶️ ", "").replace("🧳 ", "").replace("✏️ ", "").trim();
+    const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie, cree_le: new Date().toISOString() };
     db.produits.push(p); const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
     await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, date: new Date().toLocaleString("fr-FR") });
     session.etape = null; session.data = {};
