@@ -312,6 +312,52 @@ async function envoyerVersSheets(action, data) {
 }
 
 // ─────────────────────────────────────────
+// CHARGER LES DONNÉES DEPUIS GOOGLE SHEETS AU DÉMARRAGE
+// ─────────────────────────────────────────
+async function chargerDepuisSheets() {
+  if (!GAS_URL) { console.log("⚠️ GAS_URL non configuré — démarrage à vide"); return; }
+  try {
+    console.log("📊 Chargement des données depuis Google Sheets...");
+    const resp = await axios.get(GAS_URL + "?action=lire_tout");
+    const { status, data } = resp.data;
+
+    if (status !== "ok" || !data) {
+      console.log("⚠️ Sheets vide ou erreur — démarrage à vide");
+      return;
+    }
+
+    // Charger produits
+    if (data.produits && data.produits.length > 0) {
+      db.produits = data.produits;
+      console.log(`✅ ${db.produits.length} produit(s) chargé(s)`);
+    }
+
+    // Charger clients
+    if (data.clients && data.clients.length > 0) {
+      db.clients = data.clients;
+      console.log(`✅ ${db.clients.length} client(s) chargé(s)`);
+    }
+
+    // Charger ventes
+    if (data.ventes && data.ventes.length > 0) {
+      db.ventes = data.ventes;
+      console.log(`✅ ${db.ventes.length} vente(s) chargée(s)`);
+    }
+
+    // Charger charges
+    if (data.charges && data.charges.length > 0) {
+      db.charges = data.charges;
+      console.log(`✅ ${db.charges.length} charge(s) chargée(s)`);
+    }
+
+    console.log("✅ Données rechargées depuis Google Sheets !");
+  } catch (err) {
+    console.error("❌ Erreur chargement Sheets :", err.message);
+    console.log("⚠️ Démarrage à vide");
+  }
+}
+
+// ─────────────────────────────────────────
 // FIDÉLITÉ — Logique principale
 // ─────────────────────────────────────────
 const TAUX_REDUCTION = 0.10; // 10%
@@ -1232,6 +1278,10 @@ app.listen(PORT, async () => {
 
   initEmail();
   initGoogleCalendar();
+
+  // Charger les données depuis Google Sheets
+  await chargerDepuisSheets();
+
   demarrerRappels();
   console.log(`📅 Rappels Telegram démarrés`);
 
