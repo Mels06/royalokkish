@@ -336,6 +336,48 @@ function trouverOuCreerClient(info) {
 }
 
 // Enregistrer une vente avec gestion fidélité
+// Vérifie si un produit est une paire de lunettes
+function estDesLunettes(nomProduit) {
+  const mots = ["lunette", "lunettes", "monture", "solaire", "solaires", "optique", "vue"];
+  return mots.some(m => nomProduit.toLowerCase().includes(m));
+}
+
+// Trouver l'étui dans le stock
+function trouverEtui() {
+  return db.produits.find(p =>
+    p.nom.toLowerCase().includes("etui") ||
+    p.nom.toLowerCase().includes("étui") ||
+    p.nom.toLowerCase().includes("housse") ||
+    p.nom.toLowerCase().includes("case")
+  );
+}
+
+// Offrir l'étui automatiquement (déduire du stock sans facturer)
+function offrirEtui(qte, clientNom) {
+  const etui = trouverEtui();
+  if (!etui) return null;
+  if (etui.stock < qte) return { nom: etui.nom, erreur: "stock insuffisant", stock: etui.stock };
+
+  const avant = etui.stock;
+  etui.stock -= qte;
+
+  db.historique_stock.unshift({
+    id: genId(), produit_id: etui.id, produit_nom: etui.nom,
+    operation: "remove", quantite: qte, stock_avant: avant, stock_apres: etui.stock,
+    note: "Étui offert avec lunettes — " + clientNom,
+    date: new Date().toISOString(),
+  });
+
+  envoyerVersSheets("mouvement_stock", {
+    produit: etui.nom, operation: "remove", quantite: qte,
+    stock_avant: avant, stock_apres: etui.stock,
+    note: "Offert avec lunettes — " + clientNom,
+    date: new Date().toLocaleString("fr-FR"),
+  });
+
+  return { nom: etui.nom, stock_restant: etui.stock, alerte: etui.stock <= 5 };
+}
+
 async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null) {
   const produit = db.produits.find(p => p.nom.toLowerCase().includes(produitNom.toLowerCase()));
   if (!produit) return { erreur: `Produit "${produitNom}" introuvable` };
@@ -404,7 +446,13 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     date: new Date().toLocaleString("fr-FR"),
   });
 
-  return { vente, produit, client, alerte: produit.stock <= 5, reductionAppliquee, montantReduction };
+  // Offrir étui automatiquement si c'est une vente de lunettes
+  let etuiOffert = null;
+  if (estDesLunettes(produit.nom)) {
+    etuiOffert = offrirEtui(qte, client ? client.nom : "Anonyme");
+  }
+
+  return { vente, produit, client, alerte: produit.stock <= 5, reductionAppliquee, montantReduction, etuiOffert };
 }
 
 // ─────────────────────────────────────────
@@ -748,6 +796,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
         else {
           resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
           if (result.reductionAppliquee) resultMsg += ` 🎁 -10%`;
+          if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
+          if (result.etuiOffert && result.etuiOffert.erreur) resultMsg += ` ⚠️étui indispo`;
           if (result.alerte) resultMsg += ` ⚠️`;
           resultMsg += "\n";
           totalCA += result.vente.montant_total;
@@ -922,7 +972,15 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     if (result.erreur) return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
     let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
     if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité -10% appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
-    if (result.alerte) rep += `\n\n⚠️ *Stock bas !*`;
+    if (result.etuiOffert) {
+      if (result.etuiOffert.erreur) {
+        rep += `\n\n⚠️ *Étui non inclus* — stock insuffisant (${result.etuiOffert.stock} dispo)`;
+      } else {
+        rep += `\n\n🕶️ *Étui offert !* — ${result.etuiOffert.nom} déduit du stock`;
+        if (result.etuiOffert.alerte) rep += `\n⚠️ Stock étuis bas (${result.etuiOffert.stock_restant} restant(s))`;
+      }
+    }
+    if (result.alerte) rep += `\n\n⚠️ *Stock lunettes bas !*`;
     return sendMessage(chatId, rep, { reply_markup: menuVentes() });
   }
 
@@ -936,6 +994,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       else {
         resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
         if (result.reductionAppliquee) resultMsg += ` 🎁-10%`;
+        if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
+        if (result.etuiOffert && result.etuiOffert.erreur) resultMsg += ` ⚠️étui indispo`;
         if (result.alerte) resultMsg += ` ⚠️`;
         resultMsg += "\n";
         totalCA += result.vente.montant_total; nbOk++;
