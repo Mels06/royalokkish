@@ -231,8 +231,8 @@ async function creerEventGoogleCalendar(titre, dateISO) {
     const dateFin = new Date(dateDebut.getTime() + 60 * 60 * 1000);
     const event = {
       summary: titre,
-      start: { dateTime: dateDebut.toISOString(), timeZone: "Africa/Abidjan" },
-      end: { dateTime: dateFin.toISOString(), timeZone: "Africa/Abidjan" },
+      start: { dateTime: dateDebut.toISOString(), timeZone: "Africa/Porto-Novo" },
+      end: { dateTime: dateFin.toISOString(), timeZone: "Africa/Porto-Novo" },
       reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 24 * 60 }, { method: "popup", minutes: 60 }, { method: "popup", minutes: 30 }, { method: "email", minutes: 24 * 60 }] },
     };
     const response = await calendar.events.insert({ calendarId: CALENDAR_ID, resource: event });
@@ -462,7 +462,7 @@ async function parserDateNaturelle(texte) {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [{ role: "user", content: `Aujourd'hui : ${new Date().toISOString()}\nExtrait titre et date : "${texte}"\nJSON uniquement : {"titre":"nom","date":"2025-01-15T10:00:00"}\nSi impossible, "date":null.` }],
+      messages: [{ role: "user", content: `Aujourd'hui : ${new Date().toISOString()} (fuseau horaire : Bénin UTC+1, Africa/Porto-Novo)\nExtrait le titre et la date/heure de cet événement : "${texte}"\nRéponds UNIQUEMENT avec ce JSON : {"titre":"nom de l'événement","date":"2025-01-15T10:00:00"}\nRègles : utilise le fuseau Bénin (UTC+1). Si date impossible, mets "date":null.` }],
       max_tokens: 100, temperature: 0,
     });
     return JSON.parse(completion.choices[0].message.content.replace(/```json|```/g, "").trim());
@@ -1002,12 +1002,51 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     return sendMessage(chatId, rep, { reply_markup: menuVentes() });
   }
 
-  // ── VENTE TEXTE ──
+  // ── VENTE TEXTE — IA extrait les infos dans n'importe quel ordre ──
   if (session.etape === "vente_texte") {
-    const lignes = text.split("\n").filter(l => l.trim()); let resultMsg = "", totalCA = 0, nbOk = 0;
-    for (const ligne of lignes) {
-      const parties = ligne.trim().split(/\s+/); const qteIndex = parties.findIndex(p => !isNaN(parseInt(p))); if (qteIndex === -1) continue;
-      const result = await enregistrerVenteComplete(parties.slice(0, qteIndex).join(" "), parseInt(parties[qteIndex]), parties.slice(qteIndex + 1).join(" ") || null);
+    await sendMessage(chatId, `⏳ Analyse des ventes en cours...`);
+
+    // Utiliser GPT-4o pour extraire les ventes dans n'importe quel format
+    const produitsDispo = db.produits.map(p => p.nom).join(", ");
+    const clientsDispo = db.clients.map(c => c.nom).join(", ");
+
+    let ventesExtraites;
+    try {
+      const completion = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [{
+          role: "user",
+          content: `Tu es un assistant qui extrait des informations de ventes.
+Produits disponibles : ${produitsDispo || "aucun"}
+Clients connus : ${clientsDispo || "aucun"}
+
+Extrait les ventes de ce texte : "${text}"
+
+Règles :
+- Trouve le produit (cherche le nom le plus proche dans la liste)
+- Trouve la quantité (nombre)
+- Trouve le client si mentionné (nom, prénom ou numéro)
+- Le format peut être dans n'importe quel ordre
+
+Réponds UNIQUEMENT avec ce JSON :
+[{"produit":"nom exact du produit","quantite":1,"client":"nom ou null"}]
+Si plusieurs ventes, mets plusieurs objets. Rien d'autre que le JSON.`
+        }],
+        max_tokens: 300,
+        temperature: 0,
+      });
+
+      const raw = completion.choices[0].message.content.replace(/\`\`\`json|\`\`\`/g, "").trim();
+      ventesExtraites = JSON.parse(raw);
+    } catch (err) {
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `❌ Je n'ai pas compris le texte. Réessayez avec un format plus clair.\nEx: \`Lunettes 1 Karim\``, { reply_markup: menuVentes() });
+    }
+
+    let resultMsg = "", totalCA = 0, nbOk = 0;
+    for (const v of ventesExtraites) {
+      if (!v.produit || !v.quantite) continue;
+      const result = await enregistrerVenteComplete(v.produit, v.quantite, v.client || null);
       if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
       else {
         resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
@@ -1019,8 +1058,9 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
         totalCA += result.vente.montant_total; nbOk++;
       }
     }
+
     session.etape = null; session.data = {};
-    if (nbOk === 0) return sendMessage(chatId, `❌ Format : \`Produit quantité client\``, { reply_markup: menuVentes() });
+    if (nbOk === 0) return sendMessage(chatId, `❌ Aucune vente reconnue. Réessayez.\nEx: \`Lunettes 1 Karim\` ou \`Karim a acheté 1 lunette\``, { reply_markup: menuVentes() });
     return sendMessage(chatId, resultMsg + `\n💰 *Total : ${totalCA} FCFA* (${nbOk} vente(s))`, { reply_markup: menuVentes() });
   }
 
