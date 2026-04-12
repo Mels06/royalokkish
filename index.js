@@ -556,15 +556,20 @@ function formatDateFR(isoDate) {
 
 function calculerRappels(dateEvent) {
   const d = new Date(dateEvent);
+  const matin = new Date(d);
+  matin.setHours(8, 0, 0, 0);
+  // Si l'événement est le matin avant 8h, rappel matin = veille à 8h
+  if (matin >= d) matin.setDate(matin.getDate() - 1);
   return [
-    { type: "1j",    time: new Date(d.getTime() - 24 * 60 * 60 * 1000), label: "⏰ Rappel J-1" },
-    { type: "matin", time: new Date(new Date(d).setHours(8, 0, 0, 0)),  label: "🌅 Rappel matin" },
-    { type: "1h",    time: new Date(d.getTime() - 60 * 60 * 1000),       label: "⏱️ Rappel 1h avant" },
-    { type: "30min", time: new Date(d.getTime() - 30 * 60 * 1000),       label: "🔔 Rappel 30 min" },
+    { type: "1j",    time: new Date(d.getTime() - 24 * 60 * 60 * 1000), label: "⏰ Rappel J-1 — demain !" },
+    { type: "matin", time: matin,                                         label: "🌅 Rappel matin" },
+    { type: "1h",    time: new Date(d.getTime() - 60 * 60 * 1000),       label: "⏱️ Rappel dans 1h" },
+    { type: "30min", time: new Date(d.getTime() - 30 * 60 * 1000),       label: "🔔 Dans 30 min !" },
   ];
 }
 
 function demarrerRappels() {
+  // Vérification rappels toutes les 30 secondes
   setInterval(async () => {
     const maintenant = new Date();
     for (const event of db.agenda) {
@@ -573,14 +578,29 @@ function demarrerRappels() {
       for (const rappel of rappels) {
         if (event.rappels_envoyes.includes(rappel.type)) continue;
         const diff = rappel.time.getTime() - maintenant.getTime();
-        if (diff >= 0 && diff <= 60000) {
+        // Fenêtre élargie à 90 secondes pour ne rien rater
+        if (diff >= -90000 && diff <= 90000) {
+          console.log(`🔔 Envoi rappel "${rappel.label}" pour "${event.titre}"`);
           await sendMessage(event.chatId, `${rappel.label}\n\n📅 *${event.titre}*\n🕐 ${formatDateFR(event.date)}`);
           event.rappels_envoyes.push(rappel.type);
         }
       }
     }
+    // Nettoyer les événements passés depuis plus de 24h
     db.agenda = db.agenda.filter(e => new Date(e.date).getTime() > Date.now() - 24 * 60 * 60 * 1000);
-  }, 60000);
+  }, 30000);
+
+  // Auto-ping toutes les 10 minutes pour garder Render éveillé
+  setInterval(async () => {
+    try {
+      await axios.get(RENDER_URL + "/ping");
+      console.log("🏓 Ping Render OK");
+    } catch (err) {
+      console.log("🏓 Ping Render :", err.message);
+    }
+  }, 10 * 60 * 1000);
+
+  console.log("🔔 Rappels démarrés (intervalle 30s) + auto-ping 10min");
 }
 
 // ─────────────────────────────────────────
@@ -1260,6 +1280,9 @@ async function repondreIA(chatId, question) {
 // ─────────────────────────────────────────
 // API REST
 // ─────────────────────────────────────────
+// Route ping pour garder Render éveillé
+app.get("/ping", (req, res) => res.json({ status: "ok", time: new Date().toISOString() }));
+
 app.get("/api/stats", (req, res) => res.json(getStats()));
 app.get("/api/produits", (req, res) => res.json(db.produits));
 app.get("/api/clients", (req, res) => res.json(db.clients));
