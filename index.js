@@ -1241,7 +1241,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "🤖 IA") return sendMessage(chatId, `🤖 *Assistant IA*`, { reply_markup: menuIA() });
 
   // ══ PHOTOS ══
-  if (photo) {
+  if (photo && session.etape !== 'produit_photo') {
     await sendMessage(chatId, `📸 Analyse en cours...`);
     try {
       const fileId = photo[photo.length - 1].file_id;
