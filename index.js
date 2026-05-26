@@ -434,61 +434,113 @@ async function chargerDepuisSheets() {
   if (!GAS_URL) { console.log("⚠️ GAS_URL non configuré — démarrage à vide"); return; }
   try {
     console.log("📊 Chargement des données depuis Google Sheets...");
-    const resp = await axios.get(GAS_URL + "?action=lire_tout");
-    const { status, data } = resp.data;
+    const resp = await axios.get(GAS_URL + "?action=charger_tout");
+    const data = resp.data;
 
-    if (status !== "ok" || !data) {
+    if (!data || typeof data !== 'object') {
       console.log("⚠️ Sheets vide ou erreur — démarrage à vide");
       return;
     }
 
     // Charger produits
     if (data.produits && data.produits.length > 0) {
-      db.produits = data.produits;
+      db.produits = data.produits.map(p => ({
+        id: p["ID"] || p.id || genId(),
+        nom: p["Nom"] || p.nom || "",
+        categorie: p["Catégorie"] || p.categorie || "",
+        prix_achat: parseFloat(p["Prix Achat"] || p.prix_achat) || 0,
+        prix_vente: parseFloat(p["Prix Vente"] || p.prix_vente) || 0,
+        stock: parseInt(p["Stock"] || p.stock) || 0,
+        photo_id: p["Photo ID"] || p.photo_id || null,
+        couleurs: p["Couleurs"] ? p["Couleurs"].split("|").map(c => { const [nom, stock] = c.split(":"); return { nom, stock: parseInt(stock) || 0 }; }) : null,
+        cree_le: p["Date"] || p.cree_le || new Date().toISOString(),
+      }));
       console.log(`✅ ${db.produits.length} produit(s) chargé(s)`);
     }
 
     // Charger clients
     if (data.clients && data.clients.length > 0) {
-      db.clients = data.clients;
+      db.clients = data.clients.map(c => ({
+        id: c["ID"] || c.id || genId(),
+        nom: c["Nom"] || c.nom || "",
+        email: c["Email"] || c.email || "",
+        telephone: c["Téléphone"] || c.telephone || "",
+        note: c["Note"] || c.note || "",
+        nb_achats: parseInt(c["Nb Achats"] || c.nb_achats) || 0,
+        ca_total: parseFloat(c["CA Total"] || c.ca_total) || 0,
+        cree_le: c["Date"] || c.cree_le || new Date().toISOString(),
+      }));
       console.log(`✅ ${db.clients.length} client(s) chargé(s)`);
     }
 
-    // Charger ventes
+    // Charger ventes - TOUTES sans limite
     if (data.ventes && data.ventes.length > 0) {
-      db.ventes = data.ventes;
+      db.ventes = data.ventes.map(v => ({
+        id: v["ID"] || v.id || genId(),
+        client_nom: v["Client"] || v.client_nom || "",
+        produit_nom: v["Produit"] || v.produit_nom || "",
+        quantite: parseInt(v["Quantité"] || v.quantite) || 1,
+        prix_vente: parseFloat(v["Prix Vente Unit."] || v.prix_vente) || 0,
+        montant_total: parseFloat(v["Montant Total"] || v.montant_total) || 0,
+        marge_totale: parseFloat(v["Marge Totale"] || v.marge_totale) || 0,
+        reduction: parseFloat(v["Réduction"] || v.reduction) || 0,
+        date: v["Date"] || v.date || new Date().toISOString(),
+      }));
       console.log(`✅ ${db.ventes.length} vente(s) chargée(s)`);
     }
 
-    // Charger charges
+    // Charger charges - TOUTES sans limite
     if (data.charges && data.charges.length > 0) {
-      db.charges = data.charges;
+      db.charges = data.charges.map(c => ({
+        id: c["ID"] || c.id || genId(),
+        label: c["Libellé"] || c.label || "",
+        montant: parseFloat(c["Montant"] || c.montant) || 0,
+        categorie: c["Catégorie"] || c.categorie || "",
+        produit_lie: c["Produit Lié"] || c.produit_lie || null,
+        date: c["Date"] || c.date || new Date().toISOString(),
+      }));
       console.log(`✅ ${db.charges.length} charge(s) chargée(s)`);
     }
 
     // Charger agenda
     if (data.agenda && data.agenda.length > 0) {
-      // Récupérer le chatId depuis les événements existants en mémoire si possible
-      // Sinon on met le chatId des utilisateurs autorisés
       db.agenda = data.agenda.map(e => ({
-        ...e,
-        chatId: e.chatId || USERS_AUTORISES[0] || null,
-        rappels_envoyes: e.rappels_envoyes || [],
-        googleEventId: e.googleEventId || null,
+        id: e["ID"] || e.id || genId(),
+        titre: e["Titre"] || e.titre || "",
+        date: e["Date ISO"] || e.date_iso || e.date || new Date().toISOString(),
+        chatId: e["Chat ID"] || e.chatId || USERS_AUTORISES[0] || null,
+        rappels_envoyes: [],
+        googleEventId: null,
       }));
       console.log(`✅ ${db.agenda.length} événement(s) chargé(s)`);
     }
 
     if (data.relances && data.relances.length > 0) {
-      db.relances = data.relances.map(r => ({ ...r, chatId: r.chatId || USERS_AUTORISES[0] || null, rappels_envoyes: [] }));
+      db.relances = data.relances.map(r => ({
+        id: r["ID"] || r.id || genId(),
+        client_nom: r["Client"] || r.client_nom || "",
+        client_tel: r["Téléphone"] || r.client_tel || "",
+        note: r["Note"] || r.note || "",
+        date: r["Date Relance"] || r.date || new Date().toISOString(),
+        chatId: r["Chat ID"] || r.chatId || USERS_AUTORISES[0] || null,
+        rappels_envoyes: [],
+      }));
       console.log(`✅ ${db.relances.length} relance(s) chargée(s)`);
     }
 
     if (data.livraisons && data.livraisons.length > 0) {
-      db.livraisons = data.livraisons.map(l => ({ ...l, chatId: l.chatId || USERS_AUTORISES[0] || null, rappels_envoyes: [] }));
+      db.livraisons = data.livraisons.map(l => ({
+        id: l["ID"] || l.id || genId(),
+        client_nom: l["Client"] || l.client_nom || "",
+        client_tel: l["Téléphone"] || l.client_tel || "",
+        produit: l["Produit"] || l.produit || "",
+        note: l["Note"] || l.note || "",
+        date: l["Date Livraison"] || l.date || new Date().toISOString(),
+        chatId: l["Chat ID"] || l.chatId || USERS_AUTORISES[0] || null,
+        rappels_envoyes: [],
+      }));
       console.log(`✅ ${db.livraisons.length} livraison(s) chargée(s)`);
     }
-
     console.log("✅ Données rechargées depuis Google Sheets !");
   } catch (err) {
     console.error("❌ Erreur chargement Sheets :", err.message);
@@ -848,7 +900,14 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (text === "📋 Voir stock") {
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     let m = `📦 *STOCK ACTUEL*\n\n`;
-    db.produits.forEach(p => { const s = p.stock === 0 ? "🔴" : p.stock <= 5 ? "🟡" : "🟢"; m += `${s} *${p.nom}* — ${p.stock} unités\n   Achat: ${p.prix_achat} FCFA | Vente: ${p.prix_vente} FCFA\n`; });
+    db.produits.forEach(p => {
+      const s = p.stock === 0 ? "🔴" : p.stock <= 5 ? "🟡" : "🟢";
+      m += `${s} *${p.nom}* — ${p.stock} unités\n`;
+      m += `   💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n`;
+      if (p.couleurs && p.couleurs.length > 0) {
+        m += `   🎨 ` + p.couleurs.map(c => `${c.nom}: ${c.stock}`).join(" | ") + `\n`;
+      }
+    });
     return sendMessage(chatId, m, { reply_markup: menuProduits() });
   }
 
@@ -1031,22 +1090,95 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   // ══ STATS & ALERTES ══
   if (text === "📈 Stats") {
-    const s = getStats();
-    const repartition50 = parseFloat((s.benefice_net * 0.50).toFixed(0));
-    const repartition30 = parseFloat((s.benefice_net * 0.30).toFixed(0));
-    const repartition20 = parseFloat((s.benefice_net * 0.20).toFixed(0));
-    let msg = `📈 *TABLEAU DE BORD*\n\n`;
-    msg += `💰 CA : *${s.ca} FCFA*\n`;
-    msg += `📦 Coût achats : ${s.cout_achats} FCFA\n`;
-    msg += `✅ Bénéfice brut : *${s.benefice_brut} FCFA*\n`;
-    msg += `📊 Charges : ${s.total_charges} FCFA\n`;
-    msg += `🏆 Bénéfice net : *${s.benefice_net} FCFA*\n\n`;
-    msg += `💡 *Répartition bénéfice net :*\n`;
-    msg += `   💼 50% Réinvestissement : *${repartition50} FCFA*\n`;
-    msg += `   🏦 30% Épargne : *${repartition30} FCFA*\n`;
-    msg += `   🎯 20% Personnel : *${repartition20} FCFA*\n\n`;
-    msg += `🛍️ Produits : ${s.nb_produits} | 👥 Clients : ${s.nb_clients}\n`;
-    msg += `🛒 Ventes : ${s.nb_ventes} | 🚨 Alertes : ${s.alertes_stock}`;
+    session.etape = "stats_periode";
+    return sendMessage(chatId, `📈 *Statistiques*\n\nChoisissez la période :`, {
+      reply_markup: { keyboard: [
+        ["📅 Aujourd'hui", "📅 Cette semaine"],
+        ["📅 Ce mois", "📅 Ce trimestre"],
+        ["📅 Cette année", "📅 Tout voir"],
+        ["🏠 Menu"]
+      ], resize_keyboard: true }
+    });
+  }
+
+  if (session.etape === "stats_periode") {
+    const now = new Date();
+    let debut = null;
+    let labelPeriode = "";
+
+    if (text === "📅 Aujourd'hui") {
+      debut = new Date(now); debut.setHours(0,0,0,0);
+      labelPeriode = "Aujourd'hui";
+    } else if (text === "📅 Cette semaine") {
+      debut = new Date(now); debut.setDate(debut.getDate() - debut.getDay());
+      debut.setHours(0,0,0,0);
+      labelPeriode = "Cette semaine";
+    } else if (text === "📅 Ce mois") {
+      debut = new Date(now.getFullYear(), now.getMonth(), 1);
+      labelPeriode = "Ce mois";
+    } else if (text === "📅 Ce trimestre") {
+      const trimestre = Math.floor(now.getMonth() / 3);
+      debut = new Date(now.getFullYear(), trimestre * 3, 1);
+      labelPeriode = "Ce trimestre";
+    } else if (text === "📅 Cette année") {
+      debut = new Date(now.getFullYear(), 0, 1);
+      labelPeriode = "Cette année";
+    } else if (text === "📅 Tout voir") {
+      debut = null;
+      labelPeriode = "Depuis le début";
+    } else {
+      session.etape = null;
+      return sendMessage(chatId, `⚠️ Période non reconnue.`, { reply_markup: menuPrincipal() });
+    }
+
+    // Filtrer les ventes par période
+    const ventesFiltrees = debut
+      ? db.ventes.filter(v => new Date(v.date) >= debut)
+      : db.ventes;
+
+    const chargesFiltrees = debut
+      ? db.charges.filter(c => new Date(c.date) >= debut)
+      : db.charges;
+
+    const ca = ventesFiltrees.reduce((s, v) => s + (v.montant_total || 0), 0);
+    const marge_brute = ventesFiltrees.reduce((s, v) => s + (v.marge_totale || 0), 0);
+    const total_charges = chargesFiltrees.reduce((s, c) => s + (c.montant || 0), 0);
+    const benefice_net = marge_brute - total_charges;
+    const r50 = Math.round(benefice_net * 0.50);
+    const r30 = Math.round(benefice_net * 0.30);
+    const r20 = Math.round(benefice_net * 0.20);
+
+    // Top produits sur la période
+    const topProduits = {};
+    ventesFiltrees.forEach(v => {
+      if (!topProduits[v.produit_nom]) topProduits[v.produit_nom] = { qte: 0, ca: 0 };
+      topProduits[v.produit_nom].qte += v.quantite || 1;
+      topProduits[v.produit_nom].ca += v.montant_total || 0;
+    });
+    const top3 = Object.entries(topProduits)
+      .sort((a,b) => b[1].ca - a[1].ca)
+      .slice(0, 3);
+
+    let msg = `📈 *STATS — ${labelPeriode}*\n\n`;
+    msg += `💰 CA : *${ca.toFixed(0)} FCFA*\n`;
+    msg += `✅ Marge brute : *${marge_brute.toFixed(0)} FCFA*\n`;
+    msg += `📊 Charges : ${total_charges.toFixed(0)} FCFA\n`;
+    msg += `🏆 Bénéfice net : *${benefice_net.toFixed(0)} FCFA*\n\n`;
+    if (benefice_net > 0) {
+      msg += `💡 *Répartition :*\n`;
+      msg += `   💼 50% Réinvestissement : *${r50} FCFA*\n`;
+      msg += `   🏦 30% Épargne : *${r30} FCFA*\n`;
+      msg += `   🎯 20% Personnel : *${r20} FCFA*\n\n`;
+    }
+    msg += `🛒 Ventes : ${ventesFiltrees.length} | 👥 Clients : ${db.clients.length}\n`;
+    if (top3.length > 0) {
+      msg += `\n🏅 *Top produits :*\n`;
+      top3.forEach(([nom, d], i) => {
+        msg += `   ${i+1}. ${nom} — ${d.qte} vendu(s) — ${d.ca.toFixed(0)} FCFA\n`;
+      });
+    }
+
+    session.etape = null;
     return sendMessage(chatId, msg, { reply_markup: menuPrincipal() });
   }
 
@@ -1539,7 +1671,49 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "produit_nom") { session.data.nom = text; session.etape = "produit_achat"; return sendMessage(chatId, `💵 Prix d'achat (FCFA) :`); }
   if (session.etape === "produit_achat") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_achat = v; session.etape = "produit_vente"; return sendMessage(chatId, `💰 Prix de vente (FCFA) :`); }
   if (session.etape === "produit_vente") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_vente = v; session.etape = "produit_stock"; return sendMessage(chatId, `📦 Stock initial :`); }
-  if (session.etape === "produit_stock") { const v = parseInt(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`); session.data.stock = v; session.etape = "produit_categorie"; return sendMessage(chatId, `🏷️ Catégorie :`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } }); }
+  if (session.etape === "produit_stock") {
+    const v = parseInt(text);
+    if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`);
+    session.data.stock = v;
+    session.data.couleurs = [];
+    session.etape = "produit_couleur_nom";
+    return sendMessage(chatId, `🎨 *Couleurs disponibles*\n\nEntrez la 1ère couleur (ex: Noir, Or, Rouge...)\nOu tapez "skip" si pas de couleurs`, {
+      reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true }
+    });
+  }
+
+  if (session.etape === "produit_couleur_nom") {
+    if (text === "skip") {
+      // Pas de couleurs → passer à la catégorie
+      session.etape = "produit_categorie";
+      return sendMessage(chatId, `🏷️ Catégorie :`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    if (text === "✅ Terminer couleurs") {
+      // Toutes les couleurs saisies → passer à catégorie
+      session.etape = "produit_categorie";
+      const recap = session.data.couleurs.map(c => `${c.nom}: ${c.stock}`).join(", ");
+      return sendMessage(chatId, `🏷️ Catégorie :\n✅ Couleurs: ${recap}`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Sauvegarder le nom de la couleur, demander le stock
+    session.data.couleur_en_cours = text;
+    session.etape = "produit_couleur_stock";
+    return sendMessage(chatId, `📦 Stock pour la couleur *${text}* :`, {
+      reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true }
+    });
+  }
+
+  if (session.etape === "produit_couleur_stock") {
+    const v = parseInt(text);
+    if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`);
+    // Ajouter la couleur
+    session.data.couleurs.push({ nom: session.data.couleur_en_cours, stock: v });
+    session.data.couleur_en_cours = null;
+    session.etape = "produit_couleur_nom";
+    const recap = session.data.couleurs.map(c => `${c.nom}: ${c.stock}`).join(" | ");
+    return sendMessage(chatId, `✅ Couleur ajoutée !\n🎨 ${recap}\n\nAjoutez une autre couleur ou terminez :`, {
+      reply_markup: { keyboard: [["✅ Terminer couleurs"], ["❌ Annuler"]], resize_keyboard: true }
+    });
+  }
   if (session.etape === "produit_categorie_preciser") {
     session.data.categorie = text;
     session.etape = "produit_categorie";
@@ -1561,23 +1735,73 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     return sendMessage(chatId, `📸 Photo du produit ? (optionnel)\nEnvoyez une photo ou tapez "skip"`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "produit_photo") {
-    // Photo envoyée
     let photo_id = null;
     if (msg.photo && msg.photo.length > 0) {
       photo_id = msg.photo[msg.photo.length - 1].file_id;
     }
-    // Créer le produit
+    session.data.photo_id = photo_id;
+    session.etape = "produit_couleurs";
+    return sendMessage(chatId,
+      `🎨 *Couleurs disponibles*\n\nIndiquez les couleurs et quantités.\nEx: Noir×5, Or×3, Rose×2\n\nOu tapez "skip" si pas de variante couleur.`,
+      { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "produit_couleurs") {
+    session.data.couleurs = text === "skip" ? "" : text;
+    session.etape = "produit_caracteristiques";
+    return sendMessage(chatId,
+      `🔬 *Caractéristiques*\n\nChoisissez :`,
+      { reply_markup: { keyboard: [
+        ["🔵 Anti-lumière bleue"],
+        ["☀️ Photochromic"],
+        ["✨ Les deux"],
+        ["➖ Aucune"],
+        ["❌ Annuler"]
+      ], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "produit_caracteristiques") {
+    let caract = "";
+    if (text === "🔵 Anti-lumière bleue") caract = "Anti-lumière bleue";
+    else if (text === "☀️ Photochromic") caract = "Photochromic";
+    else if (text === "✨ Les deux") caract = "Anti-lumière bleue + Photochromic";
+    else if (text === "➖ Aucune") caract = "";
+    else caract = text;
+
     const p = {
-      id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat,
-      prix_vente: session.data.prix_vente, stock: session.data.stock,
-      categorie: session.data.categorie, photo_id, cree_le: new Date().toISOString()
+      id: genId(),
+      nom: session.data.nom,
+      prix_achat: session.data.prix_achat,
+      prix_vente: session.data.prix_vente,
+      stock: session.data.stock,
+      categorie: session.data.categorie,
+      photo_id: session.data.photo_id || null,
+      couleurs: session.data.couleurs || "",
+      caracteristiques: caract,
+      cree_le: new Date().toISOString()
     };
     db.produits.push(p);
     const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
-    await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, photo_id: p.photo_id || "", date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
+    await envoyerVersSheets("nouveau_produit", {
+      nom: p.nom, categorie: p.categorie,
+      prix_achat: p.prix_achat, prix_vente: p.prix_vente,
+      stock: p.stock, photo_id: p.photo_id || "",
+      couleurs: p.couleurs, caracteristiques: p.caracteristiques,
+      date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" })
+    });
     session.etape = null; session.data = {};
-    const photoMsg = photo_id ? "\n📸 Photo enregistrée ✅" : "";
-    return sendMessage(chatId, `✅ *Produit ajouté !*\n📦 ${p.nom}\n💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n📈 Marge: *${marge} FCFA (${taux}%)*\n🗃️ Stock: ${p.stock}${photoMsg}`, { reply_markup: menuProduits() });
+
+    let recap = `✅ *Produit ajouté !*\n`;
+    recap += `📦 ${p.nom} (${p.categorie})\n`;
+    recap += `💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n`;
+    recap += `📈 Marge: *${marge} FCFA (${taux}%)*\n`;
+    recap += `🗃️ Stock: ${p.stock}\n`;
+    if (p.couleurs) recap += `🎨 Couleurs: ${p.couleurs}\n`;
+    if (p.caracteristiques) recap += `🔬 Caract.: ${p.caracteristiques}\n`;
+    if (p.photo_id) recap += `📸 Photo ✅`;
+    return sendMessage(chatId, recap, { reply_markup: menuProduits() });
   }
 
   // ── CLIENT (avec envoi carte fidélité) ──
