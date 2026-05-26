@@ -754,7 +754,7 @@ async function parserDateNaturelle(texte) {
   try {
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
-      messages: [{ role: "user", content: `Aujourd'hui : ${new Date().toISOString()} (fuseau horaire : Bénin UTC+1, Africa/Porto-Novo)\nExtrait le titre et la date/heure de cet événement : "${texte}"\nRéponds UNIQUEMENT avec ce JSON : {"titre":"nom de l'événement","date":"2025-01-15T10:00:00"}\nRègles : utilise le fuseau Bénin (UTC+1). Si date impossible, mets "date":null.` }],
+      messages: [{ role: "user", content: `Heure actuelle à Cotonou Bénin (UTC+1) : ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Porto-Novo', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })}\\nExtrait le titre et la date/heure de cet événement : "${texte}"\\nRéponds UNIQUEMENT avec ce JSON : {"titre":"nom de l'événement","date":"2026-05-27T15:00:00"}\\nRÈGLES STRICTES :\\n1. La date générée est en HEURE DE COTONOU (UTC+1) - PAS en UTC\\n2. Si utilisateur dit 15h tu mets T15:00:00 dans le JSON - jamais T14:00:00\\n3. Si seulement heure sans jour → date d'aujourd'hui au Bénin\\n4. Si impossible → "date":null` }],
       max_tokens: 100, temperature: 0,
     });
     return JSON.parse(completion.choices[0].message.content.replace(/```json|```/g, "").trim());
@@ -763,9 +763,12 @@ async function parserDateNaturelle(texte) {
 
 function formatDateFR(isoDate) {
   const d = new Date(isoDate);
-  const jours = ["Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi"];
-  const mois = ["jan", "fév", "mar", "avr", "mai", "jun", "jul", "aoû", "sep", "oct", "nov", "déc"];
-  return `${jours[d.getDay()]} ${d.getDate()} ${mois[d.getMonth()]} à ${d.getHours()}h${String(d.getMinutes()).padStart(2, "0")}`;
+  const tz = 'Africa/Porto-Novo';
+  const opts = { timeZone: tz, weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit', hour12: false };
+  // Formatter en français avec heure Bénin
+  const str = d.toLocaleString('fr-FR', opts);
+  // str = "mercredi 27 mai à 15:00" → capitaliser
+  return str.charAt(0).toUpperCase() + str.slice(1);
 }
 
 function calculerRappels(dateEvent) {
