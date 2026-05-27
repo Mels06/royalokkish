@@ -733,7 +733,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
   envoyerVersSheets("nouvelle_vente", {
     client: vente.client_nom, produit: produit.nom, quantite: qte,
     prix_vente: prixVente, montant_total, marge_totale,
-    reduction: reductionAppliquee ? "Oui -10%" : "Non",
+    reduction: reductionAppliquee || 0,
     date: new Date().toLocaleString("fr-FR"),
   });
 
@@ -921,6 +921,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   // ══ PRODUITS ══
   if (text === "📦 Produits") return sendMessage(chatId, `📦 *PRODUITS*`, { reply_markup: menuProduits() });
 
+  await chargerDepuisSheets();
   if (text === "📋 Voir stock") {
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     let m = `📦 *STOCK ACTUEL*\n\n`;
@@ -950,6 +951,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   // ══ CLIENTS ══
   if (text === "👥 Clients") return sendMessage(chatId, `👥 *CLIENTS*`, { reply_markup: menuClients() });
 
+  await chargerDepuisSheets();
   if (text === "📋 Voir clients") {
     if (db.clients.length === 0) return sendMessage(chatId, `👥 Aucun client.`, { reply_markup: menuClients() });
     let m = `👥 *CLIENTS (${db.clients.length})*\n\n`;
@@ -967,6 +969,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     return sendMessage(chatId, `👥 *Nouveau client*\n\nNom complet :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
 
+  await chargerDepuisSheets();
   if (text === "🔍 Rechercher client") {
     session.etape = "recherche_client";
     return sendMessage(chatId, `🔍 Nom, prénom ou téléphone :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
@@ -1063,6 +1066,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ VENTES ══
   if (text === "💰 Ventes") return sendMessage(chatId, `💰 *VENTES*`, { reply_markup: menuVentes() });
 
+  await chargerDepuisSheets();
   if (text === "📋 Voir ventes") {
     if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
     const s = getStats(); let m = `💰 *VENTES (${db.ventes.length})*\nCA: *${s.ca} FCFA*\n\n`;
@@ -1083,6 +1087,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   }
 
   // ══ CHARGES ══
+  await chargerDepuisSheets();
   if (text === "📊 Charges") {
     if (db.charges.length === 0) { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 Aucune charge.\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
     const total = db.charges.reduce((s, c) => s + c.montant, 0); let m = `📊 *CHARGES (${total} FCFA)*\n\n`;
@@ -1091,6 +1096,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   }
 
   if (text === "➕ Ajouter charge") { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 *Nouvelle charge*\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
+  await chargerDepuisSheets();
   if (text === "📊 Charges par produit") {
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Aucun produit.`, { reply_markup: menuPrincipal() });
     let m = `📊 *CHARGES PAR PRODUIT*\n\n`;
@@ -1113,6 +1119,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   }
 
   // ══ STATS & ALERTES ══
+  await chargerDepuisSheets();
   if (text === "📈 Stats") {
     session.etape = "stats_periode";
     return sendMessage(chatId, `📈 *Statistiques*\n\nChoisissez la période :`, {
@@ -1218,6 +1225,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ AGENDA ══
   if (text === "📅 Agenda") return sendMessage(chatId, `📅 *AGENDA*`, { reply_markup: menuAgenda() });
 
+  await chargerDepuisSheets();
   if (text === "📋 Voir agenda") {
     const events = db.agenda.filter(e => new Date(e.date) > new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
     if (events.length === 0) return sendMessage(chatId, `📅 Aucun événement.`, { reply_markup: menuAgenda() });
@@ -1231,6 +1239,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     return sendMessage(chatId, m, { reply_markup: menuAgenda() });
   }
 
+  await chargerDepuisSheets();
   if (text === "🔍 Agenda du jour") {
     const auj = new Date();
     auj.setHours(0,0,0,0);
@@ -1280,6 +1289,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     );
   }
 
+  await chargerDepuisSheets();
   if (text === "📋 Voir membres fidélité") {
     const membres = db.clients.filter(c => c.nb_achats >= ACHAT_REDUCTION);
     if (membres.length === 0) return sendMessage(chatId, `🎁 Aucun membre éligible à la réduction pour l'instant.`, { reply_markup: menuFidelite() });
@@ -1744,7 +1754,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     // Forcer la suite avec la catégorie précisée
     const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie: session.data.categorie, cree_le: new Date().toISOString() };
     db.produits.push(p); const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
-    await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, photo_id: p.photo_id || "", date: new Date().toLocaleString("fr-FR") });
+    await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, photo_id: p.photo_id || "", couleurs: p.couleurs || "", caracteristiques: p.caracteristiques || "", date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ *Produit ajouté !*\n📦 ${p.nom}\n💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n📈 Marge: *${marge} FCFA (${taux}%)*\n🗃️ Stock: ${p.stock}\n🏷️ Catégorie: ${p.categorie}`, { reply_markup: menuProduits() });
   }
