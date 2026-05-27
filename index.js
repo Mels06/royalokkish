@@ -130,7 +130,7 @@ async function envoyerCarteFidelite(client, vente = null) {
         </div>
         <div class="paliers">
           <div class="palier"><div class="palier-pct">-8%</div><div class="palier-label">2ème achat</div></div>
-          <div class="palier"><div class="palier-pct">-10%</div><div class="palier-label">3ème achat</div></div>
+          <div class="palier"><div class="palier-pct">-15%</div><div class="palier-label">3ème achat</div></div>
           <div class="palier palier-last"><div class="palier-pct">-15%</div><div class="palier-label">4ème+ achat</div></div>
         </div>
         <div class="cta"><a class="btn">Votre fidélité est notre couronne</a></div>
@@ -335,7 +335,7 @@ async function envoyerEmailReduction(client, vente, montantAvant, reduction) {
 </html>`;
     await envoyerEmail(
       client.email,
-      `🎁 Votre réduction fidélité -10% appliquée, \${prenom} !`,
+      `🎁 Votre réduction fidélité appliquée, \${prenom} !`,
       html
     );
   } catch (err) {
@@ -451,8 +451,14 @@ async function envoyerVersSheets(action, data) {
 // ─────────────────────────────────────────
 // CHARGER LES DONNÉES DEPUIS GOOGLE SHEETS AU DÉMARRAGE
 // ─────────────────────────────────────────
-async function chargerDepuisSheets() {
+let _dernierChargement = 0;
+const CACHE_SHEETS_MS = 60000; // 60 secondes minimum entre deux rechargements
+
+async function chargerDepuisSheets(force = false) {
   if (!GAS_URL) { console.log("⚠️ GAS_URL non configuré — démarrage à vide"); return; }
+  const maintenant = Date.now();
+  if (!force && maintenant - _dernierChargement < CACHE_SHEETS_MS) return; // Cache actif
+  _dernierChargement = maintenant;
   try {
     console.log("📊 Chargement des données depuis Google Sheets...");
     const resp = await axios.get(GAS_URL + "?action=charger_tout");
@@ -462,6 +468,25 @@ async function chargerDepuisSheets() {
       console.log("⚠️ Sheets vide ou erreur — démarrage à vide");
       return;
     }
+    
+    // Log pour debug
+    console.log(`📊 Sheets reçu: ${Object.keys(data).map(k => k + '=' + (data[k]?.length||0)).join(', ')}`);
+
+    // ⚠️ RÉINITIALISER db avant chaque rechargement
+    // → garantit que les suppressions dans Sheets sont prises en compte
+    // Sauvegarder les rappels déjà envoyés pour ne pas les renvoyer
+    const rappelsDejaEnvoyes = {};
+    db.agenda.forEach(e => { if (e.id) rappelsDejaEnvoyes[e.id] = e.rappels_envoyes || []; });
+    db.relances.forEach(r => { if (r.id) rappelsDejaEnvoyes['r_'+r.id] = r.rappels_envoyes || []; });
+    db.livraisons.forEach(l => { if (l.id) rappelsDejaEnvoyes['l_'+l.id] = l.rappels_envoyes || []; });
+
+    db.produits = [];
+    db.clients = [];
+    db.ventes = [];
+    db.charges = [];
+    db.agenda = [];
+    db.relances = [];
+    db.livraisons = [];
 
     // Charger produits
     if (data.produits && data.produits.length > 0) {
@@ -525,41 +550,50 @@ async function chargerDepuisSheets() {
 
     // Charger agenda
     if (data.agenda && data.agenda.length > 0) {
-      db.agenda = data.agenda.map(e => ({
-        id: e["ID"] || e.id || genId(),
-        titre: e["Titre"] || e.titre || "",
-        date: e["Date ISO"] || e.date_iso || e.date || new Date().toISOString(),
-        chatId: e["Chat ID"] || e.chatId || USERS_AUTORISES[0] || null,
-        rappels_envoyes: [],
-        googleEventId: null,
-      }));
+      db.agenda = data.agenda.map(e => {
+        const id = e["ID"] || e.id || genId();
+        return {
+          id,
+          titre: e["Titre"] || e.titre || "",
+          date: e["Date ISO"] || e.date_iso || e.date || new Date().toISOString(),
+          chatId: e["Chat ID"] || e.chatId || USERS_AUTORISES[0] || null,
+          rappels_envoyes: rappelsDejaEnvoyes[id] || [],  // Restaurer rappels envoyés
+          googleEventId: null,
+        };
+      });
       console.log(`✅ ${db.agenda.length} événement(s) chargé(s)`);
     }
 
     if (data.relances && data.relances.length > 0) {
-      db.relances = data.relances.map(r => ({
-        id: r["ID"] || r.id || genId(),
-        client_nom: r["Client"] || r.client_nom || "",
-        client_tel: r["Téléphone"] || r.client_tel || "",
-        note: r["Note"] || r.note || "",
-        date: r["Date Relance"] || r.date || new Date().toISOString(),
-        chatId: r["Chat ID"] || r.chatId || USERS_AUTORISES[0] || null,
-        rappels_envoyes: [],
-      }));
+      db.relances = data.relances.map(r => {
+        const id = r["ID"] || r.id || genId();
+        return {
+          id,
+          client_nom: r["Client"] || r.client_nom || "",
+          client_tel: r["Téléphone"] || r.client_tel || "",
+          note: r["Note"] || r.note || "",
+          date: r["Date Relance"] || r.date || new Date().toISOString(),
+          chatId: r["Chat ID"] || r.chatId || USERS_AUTORISES[0] || null,
+          rappels_envoyes: rappelsDejaEnvoyes['r_'+id] || [],
+        };
+      });
       console.log(`✅ ${db.relances.length} relance(s) chargée(s)`);
     }
 
     if (data.livraisons && data.livraisons.length > 0) {
-      db.livraisons = data.livraisons.map(l => ({
-        id: l["ID"] || l.id || genId(),
-        client_nom: l["Client"] || l.client_nom || "",
-        client_tel: l["Téléphone"] || l.client_tel || "",
-        produit: l["Produit"] || l.produit || "",
-        note: l["Note"] || l.note || "",
-        date: l["Date Livraison"] || l.date || new Date().toISOString(),
-        chatId: l["Chat ID"] || l.chatId || USERS_AUTORISES[0] || null,
-        rappels_envoyes: [],
-      }));
+      db.livraisons = data.livraisons.map(l => {
+        const id = l["ID"] || l.id || genId();
+        return {
+          id,
+          client_nom: l["Client"] || l.client_nom || "",
+          client_tel: l["Téléphone"] || l.client_tel || "",
+          produit: l["Produit"] || l.produit || "",
+          note: l["Note"] || l.note || "",
+          date: l["Date Livraison"] || l.date || new Date().toISOString(),
+          chatId: l["Chat ID"] || l.chatId || USERS_AUTORISES[0] || null,
+          rappels_envoyes: rappelsDejaEnvoyes['l_'+id] || [],
+        };
+      });
       console.log(`✅ ${db.livraisons.length} livraison(s) chargée(s)`);
     }
     console.log("✅ Données rechargées depuis Google Sheets !");
@@ -573,10 +607,9 @@ async function chargerDepuisSheets() {
 // FIDÉLITÉ — Paliers progressifs
 // ─────────────────────────────────────────
 // 1er achat → plein
-// 2ème achat → -5%
-// 3ème achat → -8%
-// 4ème achat → -10%
-// 5ème+ achat → -10% permanent
+// 2ème achat → -8%
+// 3ème achat → -10%
+// 4ème+ achat → -15%
 
 function getTauxReduction(nb_achats) {
   if (nb_achats === 1) return 0.08; // 2ème achat : -8%
@@ -588,7 +621,7 @@ function getTauxReduction(nb_achats) {
 function getLabelReduction(nb_achats) {
   if (nb_achats === 1) return "-5%";
   if (nb_achats === 2) return "-8%";
-  if (nb_achats >= 3) return "-10%";
+  if (nb_achats >= 3) return "-15%";
   return null;
 }
 
@@ -921,8 +954,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   // ══ PRODUITS ══
   if (text === "📦 Produits") return sendMessage(chatId, `📦 *PRODUITS*`, { reply_markup: menuProduits() });
 
-  await chargerDepuisSheets();
   if (text === "📋 Voir stock") {
+    await chargerDepuisSheets();
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     let m = `📦 *STOCK ACTUEL*\n\n`;
     db.produits.forEach(p => {
@@ -951,15 +984,15 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   // ══ CLIENTS ══
   if (text === "👥 Clients") return sendMessage(chatId, `👥 *CLIENTS*`, { reply_markup: menuClients() });
 
-  await chargerDepuisSheets();
   if (text === "📋 Voir clients") {
+    await chargerDepuisSheets();
     if (db.clients.length === 0) return sendMessage(chatId, `👥 Aucun client.`, { reply_markup: menuClients() });
     let m = `👥 *CLIENTS (${db.clients.length})*\n\n`;
     db.clients.forEach(c => {
       const badge = c.nb_achats >= ACHAT_REDUCTION ? "⭐" : "🆕";
       m += `${badge} *${c.nom}*${c.telephone ? ` | 📱 ${c.telephone}` : ""}\n`;
       m += `   🛒 ${c.nb_achats} achat(s) — ${c.ca_total} FCFA`;
-      m += c.nb_achats >= ACHAT_REDUCTION ? ` | 🎁 -10%\n\n` : `\n\n`;
+      m += c.nb_achats >= ACHAT_REDUCTION ? ` | 🎁 -15%\n\n` : `\n\n`;
     });
     return sendMessage(chatId, m, { reply_markup: menuClients() });
   }
@@ -969,8 +1002,8 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     return sendMessage(chatId, `👥 *Nouveau client*\n\nNom complet :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
 
-  await chargerDepuisSheets();
   if (text === "🔍 Rechercher client") {
+    await chargerDepuisSheets();
     session.etape = "recherche_client";
     return sendMessage(chatId, `🔍 Nom, prénom ou téléphone :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
@@ -1066,11 +1099,11 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ VENTES ══
   if (text === "💰 Ventes") return sendMessage(chatId, `💰 *VENTES*`, { reply_markup: menuVentes() });
 
-  await chargerDepuisSheets();
   if (text === "📋 Voir ventes") {
+    await chargerDepuisSheets();
     if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
     const s = getStats(); let m = `💰 *VENTES (${db.ventes.length})*\nCA: *${s.ca} FCFA*\n\n`;
-    db.ventes.slice(0, 8).forEach(v => { m += `🛒 *${v.produit_nom}* x${v.quantite} — ${v.montant_total} FCFA${v.reduction_appliquee ? " 🎁-10%" : ""}\n   👤 ${v.client_nom} | Marge: ${v.marge_totale} FCFA\n`; });
+    db.ventes.slice(0, 8).forEach(v => { m += `🛒 *${v.produit_nom}* x${v.quantite} — ${v.montant_total} FCFA${v.reduction_appliquee ? " 🎁-15%" : ""}\n   👤 ${v.client_nom} | Marge: ${v.marge_totale} FCFA\n`; });
     return sendMessage(chatId, m, { reply_markup: menuVentes() });
   }
 
@@ -1089,6 +1122,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ CHARGES ══
   await chargerDepuisSheets();
   if (text === "📊 Charges") {
+    await chargerDepuisSheets();
     if (db.charges.length === 0) { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 Aucune charge.\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
     const total = db.charges.reduce((s, c) => s + c.montant, 0); let m = `📊 *CHARGES (${total} FCFA)*\n\n`;
     db.charges.forEach(c => m += `• *${c.label}* — ${c.montant} FCFA (${c.categorie})\n`);
@@ -1098,6 +1132,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "➕ Ajouter charge") { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 *Nouvelle charge*\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
   await chargerDepuisSheets();
   if (text === "📊 Charges par produit") {
+    await chargerDepuisSheets();
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Aucun produit.`, { reply_markup: menuPrincipal() });
     let m = `📊 *CHARGES PAR PRODUIT*\n\n`;
     db.produits.forEach(p => {
@@ -1121,6 +1156,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ STATS & ALERTES ══
   await chargerDepuisSheets();
   if (text === "📈 Stats") {
+    await chargerDepuisSheets();
     session.etape = "stats_periode";
     return sendMessage(chatId, `📈 *Statistiques*\n\nChoisissez la période :`, {
       reply_markup: { keyboard: [
@@ -1225,8 +1261,8 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══ AGENDA ══
   if (text === "📅 Agenda") return sendMessage(chatId, `📅 *AGENDA*`, { reply_markup: menuAgenda() });
 
-  await chargerDepuisSheets();
   if (text === "📋 Voir agenda") {
+    await chargerDepuisSheets();
     const events = db.agenda.filter(e => new Date(e.date) > new Date()).sort((a, b) => new Date(a.date) - new Date(b.date));
     if (events.length === 0) return sendMessage(chatId, `📅 Aucun événement.`, { reply_markup: menuAgenda() });
     let m = `📅 *AGENDA COMPLET (${events.length} événement(s))*\n\n`;
@@ -1239,8 +1275,8 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     return sendMessage(chatId, m, { reply_markup: menuAgenda() });
   }
 
-  await chargerDepuisSheets();
   if (text === "🔍 Agenda du jour") {
+    await chargerDepuisSheets();
     const auj = new Date();
     auj.setHours(0,0,0,0);
     const demain = new Date(auj); demain.setDate(demain.getDate()+1);
@@ -1283,14 +1319,14 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       `   1er achat → Tarif plein\n` +
       `   2ème achat → *-5%*\n` +
       `   3ème achat → *-8%*\n` +
-      `   4ème achat → *-10%* permanent\n\n` +
+      `   4ème+ achat → *-15%* permanent\n\n` +
       `📧 La carte fidélité est envoyée par email à l'inscription.`,
       { reply_markup: menuFidelite() }
     );
   }
 
-  await chargerDepuisSheets();
   if (text === "📋 Voir membres fidélité") {
+    await chargerDepuisSheets();
     const membres = db.clients.filter(c => c.nb_achats >= ACHAT_REDUCTION);
     if (membres.length === 0) return sendMessage(chatId, `🎁 Aucun membre éligible à la réduction pour l'instant.`, { reply_markup: menuFidelite() });
     let m = `⭐ *MEMBRES FIDÈLES (${membres.length})*\n\n`;
@@ -1452,7 +1488,7 @@ Si prix non visible mets 0. Si plusieurs ventes, plusieurs objets.` },
         if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
         else {
           resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
-          if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-10%'}`;
+          if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-15%'}`;
           if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
           if (result.etuiOffert && result.etuiOffert.erreur) resultMsg += ` ⚠️étui indispo`;
           if (result.alerte) resultMsg += ` ⚠️`;
@@ -1882,7 +1918,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     session.data.quantite = qte; session.etape = "vente_client";
     const b = db.clients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
     b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
-    return sendMessage(chatId, `👤 Client ?\n⭐ = réduction -10% | ➕ = nouveau client`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau client`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_client") {
     const clientNom = text.replace("⭐ ", "").trim();
@@ -2035,7 +2071,7 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
       if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
       else {
         resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
-        if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-10%'}`;
+        if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-15%'}`;
         if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
         if (result.etuiOffert && result.etuiOffert.erreur) resultMsg += ` ⚠️étui indispo`;
         if (result.alerte) resultMsg += ` ⚠️`;
