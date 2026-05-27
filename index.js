@@ -83,17 +83,15 @@ async function envoyerCarteFidelite(client, vente = null) {
       <div class="enc">
         <div class="et">🛒 Récapitulatif de votre achat</div>
         <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;">
-          <div style="flex:1;">
-            <div style="color:#fff;font-size:15px;font-weight:bold;">${vente.produit_nom}</div>
+          <div style="flex:1;min-width:160px;">
+            <div style="color:#fff;font-size:15px;font-weight:bold;">${vente.produit_nom}${vente.produit_couleur ? ' — ' + vente.produit_couleur : ''}</div>
             <div style="color:#888;font-size:12px;margin-top:6px;line-height:1.8;">
               Quantité : ${vente.quantite}<br>
-              Date : ${new Date().toLocaleDateString('fr-FR')}
+              Date : ${new Date().toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo'})}
             </div>
+            <div style="color:#C9A84C;font-size:20px;font-weight:bold;margin-top:8px;">${vente.montant_total} FCFA</div>
           </div>
-          <div style="text-align:right;">
-            ${vente.photo_url ? `<img src="${vente.photo_url}" style="width:80px;height:80px;object-fit:cover;border-radius:8px;border:1px solid #C9A84C;margin-left:auto;display:block;margin-bottom:8px;">` : ''}
-            <div style="color:#C9A84C;font-size:20px;font-weight:bold;">${vente.montant_total} FCFA</div>
-          </div>
+          ${vente.produit_photo_url ? `<div><img src="${vente.produit_photo_url}" style="width:90px;height:90px;object-fit:cover;border-radius:8px;border:2px solid #C9A84C;display:block;"></div>` : ''}
         </div>
       </div>` : '';
 
@@ -130,7 +128,7 @@ async function envoyerCarteFidelite(client, vente = null) {
         </div>
         <div class="paliers">
           <div class="palier"><div class="palier-pct">-8%</div><div class="palier-label">2ème achat</div></div>
-          <div class="palier"><div class="palier-pct">-15%</div><div class="palier-label">3ème achat</div></div>
+          <div class="palier"><div class="palier-pct">-10%</div><div class="palier-label">3ème achat</div></div>
           <div class="palier palier-last"><div class="palier-pct">-15%</div><div class="palier-label">4ème+ achat</div></div>
         </div>
         <div class="cta"><a class="btn">Votre fidélité est notre couronne</a></div>
@@ -883,6 +881,11 @@ async function finaliserVente(chatId, session, clientNom) {
   const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom);
   session.etape = null; session.data = {};
   if (result.erreur) return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
+  
+  // Envoyer carte fidélité avec récap de l'achat si c'est le premier achat
+  if (result.client && result.client.email && result.client.nb_achats <= 1) {
+    await envoyerCarteFidelite(result.client, result.vente);
+  }
   let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
   if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité ${result.labelReduction || ''} appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
   if (result.etuiOffert) {
@@ -2096,13 +2099,8 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     db.clients.push(client);
     await envoyerVersSheets("nouveau_client", { nom: client.nom, email: client.email, telephone: client.telephone, note: client.note, date: new Date().toLocaleString("fr-FR") });
 
-    // Envoyer carte fidélité si email
-    if (client.email) {
-      const envoye = await envoyerCarteFidelite(client);
-      client.carte_envoyee = envoye;
-    }
-
-    await sendMessage(chatId, `✅ Client *${client.nom}* créé !${client.email ? "\n📧 Carte fidélité envoyée" : ""}`);
+    // Carte fidélité envoyée dans finaliserVente avec le récap de la vente
+    await sendMessage(chatId, `✅ Client *${client.nom}* créé !`);
     await finaliserVente(chatId, session, client.nom);
     return;
   }
