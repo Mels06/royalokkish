@@ -389,8 +389,8 @@ async function uploadImageDrive(imageBuffer, fileName, mimeType = "image/jpeg") 
       fileId,
       requestBody: { role: "reader", type: "anyone" },
     });
-    const url = `https://drive.google.com/uc?export=view&id=\${fileId}`;
-    console.log(`📸 Photo uploadée sur Drive: \${url}`);
+    const url = `https://drive.google.com/uc?export=view&id=${fileId}`;
+    console.log(`📸 Photo uploadée sur Drive: ${url}`);
     return url;
   } catch (err) {
     console.error("❌ Drive upload:", err.message);
@@ -428,14 +428,14 @@ async function uploaderLogoRoyal() {
 // Télécharger une photo Telegram et l'uploader sur Drive
 async function telechargerEtUploaderPhoto(fileId, nomProduit) {
   try {
-    const fileResp = await axios.get(`\${TELEGRAM_API}/getFile?file_id=\${fileId}`);
+    const fileResp = await axios.get(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
     const filePath = fileResp.data.result.file_path;
     const imageResp = await axios.get(
-      `https://api.telegram.org/file/bot\${TELEGRAM_TOKEN}/\${filePath}`,
+      `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`,
       { responseType: "arraybuffer" }
     );
     const buffer = Buffer.from(imageResp.data);
-    const fileName = `\${nomProduit.replace(/[^a-z0-9]/gi, '_')}_\${Date.now()}.jpg`;
+    const fileName = `${nomProduit.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.jpg`;
     return await uploadImageDrive(buffer, fileName);
   } catch (err) {
     console.error("❌ Téléchargement photo Telegram:", err.message);
