@@ -580,8 +580,10 @@ async function chargerDepuisSheets(force = false) {
         categorie: p["Catégorie"] || p.categorie || "",
         prix_achat: parseFloat(p["Prix Achat"] || p.prix_achat) || 0,
         prix_vente: parseFloat(p["Prix Vente"] || p.prix_vente) || 0,
-        stock: parseInt(p["Stock"] || p.stock) || 0,
+        stock_initial: parseInt(p["Stock Initial"] || p.stock_initial || p["Stock Actuel"] || p["Stock"] || p.stock) || 0,
+        stock: parseInt(p["Stock Actuel"] || p["Stock"] || p.stock) || 0,
         photo_id: p["Photo ID"] || p.photo_id || null,
+        photo_url: p["Photo URL"] || p.photo_url || null,
         couleurs: p["Couleurs"] ? p["Couleurs"].split("|").map(c => { const [nom, stock] = c.split(":"); return { nom, stock: parseInt(stock) || 0 }; }) : null,
         cree_le: p["Date"] || p.cree_le || new Date().toISOString(),
       }));
@@ -1934,6 +1936,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       nom: session.data.nom,
       prix_achat: session.data.prix_achat,
       prix_vente: session.data.prix_vente,
+      stock_initial: session.data.stock,
       stock: session.data.stock,
       categorie: session.data.categorie,
       photo_id: session.data.photo_id || null,
@@ -1947,7 +1950,9 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     await envoyerVersSheets("nouveau_produit", {
       nom: p.nom, categorie: p.categorie,
       prix_achat: p.prix_achat, prix_vente: p.prix_vente,
-      stock: p.stock, photo_id: p.photo_id || "",
+      stock_initial: p.stock_initial,
+      stock: p.stock,
+      photo_id: p.photo_id || "",
       photo_url: p.photo_url || "",
       couleurs: p.couleurs, caracteristiques: p.caracteristiques,
       date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" })
