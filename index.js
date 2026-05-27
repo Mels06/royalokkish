@@ -704,8 +704,8 @@ function getTauxReduction(nb_achats) {
 }
 
 function getLabelReduction(nb_achats) {
-  if (nb_achats === 1) return "-5%";
-  if (nb_achats === 2) return "-8%";
+  if (nb_achats === 1) return "-8%";
+  if (nb_achats === 2) return "-10%";
   if (nb_achats >= 3) return "-15%";
   return null;
 }
@@ -1427,8 +1427,8 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       `🆕 Nouveaux clients (1er achat) : *${nouveaux.length}*\n\n` +
       `📌 *Paliers de réduction :*\n` +
       `   1er achat → Tarif plein\n` +
-      `   2ème achat → *-5%*\n` +
-      `   3ème achat → *-8%*\n` +
+      `   2ème achat → *-8%*\n` +
+      `   3ème achat → *-10%*\n` +
       `   4ème+ achat → *-15%* permanent\n\n` +
       `📧 La carte fidélité est envoyée par email à l'inscription.`,
       { reply_markup: menuFidelite() }
@@ -2055,7 +2055,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
           const label = getLabelReduction(clientCheck.nb_achats);
           statutMsg += `\n🎁 *Réduction ${label} ACTIVE* — sera appliquée automatiquement sur cette vente`;
         } else {
-          statutMsg += `\nℹ️ Pas encore de réduction (1er achat — prochain achat à -5%)`;
+          statutMsg += `\nℹ️ Pas encore de réduction (1er achat — prochain achat à -8%)`;
         }
         await sendMessage(chatId, statutMsg);
       }
