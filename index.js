@@ -577,12 +577,13 @@ async function chargerDepuisSheets(force = false) {
       db.produits = data.produits.map(p => ({
         id: p["ID"] || p.id || genId(),
         nom: p["Nom"] || p.nom || "",
+        couleur: p["Couleur"] || p.couleur || "",
         categorie: p["Catégorie"] || p.categorie || "",
+        caracteristiques: p["Caractéristiques"] || p.caracteristiques || "",
         prix_achat: parseFloat(p["Prix Achat"] || p.prix_achat) || 0,
         prix_vente: parseFloat(p["Prix Vente"] || p.prix_vente) || 0,
-        stock_initial: parseInt(p["Stock Initial"] || p.stock_initial || p["Stock Actuel"] || p["Stock"] || p.stock) || 0,
+        stock_initial: parseInt(p["Stock Initial"] || p.stock_initial) || 0,
         stock: parseInt(p["Stock Actuel"] || p["Stock"] || p.stock) || 0,
-        photo_id: p["Photo ID"] || p.photo_id || null,
         photo_url: p["Photo URL"] || p.photo_url || null,
         couleurs: p["Couleurs"] ? p["Couleurs"].split("|").map(c => { const [nom, stock] = c.split(":"); return { nom, stock: parseInt(stock) || 0 }; }) : null,
         cree_le: p["Date"] || p.cree_le || new Date().toISOString(),
@@ -789,7 +790,16 @@ function offrirEtui(qte, clientNom) {
 }
 
 async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null) {
-  const produit = db.produits.find(p => p.nom.toLowerCase().includes(produitNom.toLowerCase()));
+  // Chercher par "Nom Couleur" exact d'abord, puis par nom seul
+  let produit = db.produits.find(p => {
+    const nomAvecCouleur = p.couleur ? (p.nom + " " + p.couleur).toLowerCase() : p.nom.toLowerCase();
+    return nomAvecCouleur === produitNom.toLowerCase();
+  });
+  if (!produit) {
+    // Chercher par nom qui contient
+    const variantes = db.produits.filter(p => p.nom.toLowerCase().includes(produitNom.toLowerCase()));
+    if (variantes.length > 0) produit = variantes.sort((a, b) => b.stock - a.stock)[0];
+  }
   if (!produit) return { erreur: `Produit "${produitNom}" introuvable` };
   if (produit.stock < qte) return { erreur: `Stock insuffisant pour ${produit.nom} (dispo: ${produit.stock})` };
 
@@ -1044,13 +1054,24 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
     await chargerDepuisSheets();
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     let m = `📦 *STOCK ACTUEL*\n\n`;
+    // Grouper par nom de modèle
+    const modeles = {};
     db.produits.forEach(p => {
-      const s = p.stock === 0 ? "🔴" : p.stock <= 5 ? "🟡" : "🟢";
-      m += `${s} *${p.nom}* — ${p.stock} unités\n`;
-      m += `   💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n`;
-      if (p.couleurs && p.couleurs.length > 0) {
-        m += `   🎨 ` + p.couleurs.map(c => `${c.nom}: ${c.stock}`).join(" | ") + `\n`;
-      }
+      if (!modeles[p.nom]) modeles[p.nom] = [];
+      modeles[p.nom].push(p);
+    });
+    Object.entries(modeles).forEach(([nom, variantes]) => {
+      const stockTotal = variantes.reduce((s, v) => s + v.stock, 0);
+      const s = stockTotal === 0 ? "🔴" : stockTotal <= 5 ? "🟡" : "🟢";
+      m += `${s} *${nom}*\n`;
+      m += `   💵 ${variantes[0].prix_achat} FCFA → ${variantes[0].prix_vente} FCFA\n`;
+      if (variantes[0].caracteristiques) m += `   🔬 ${variantes[0].caracteristiques}\n`;
+      variantes.forEach(v => {
+        const sv = v.stock === 0 ? "🔴" : v.stock <= 3 ? "🟡" : "🟢";
+        const couleurLabel = v.couleur ? `🎨 ${v.couleur}` : "📦 Sans couleur";
+        m += `   ${sv} ${couleurLabel} : *${v.stock}* / ${v.stock_initial} (init)\n`;
+      });
+      m += `\n`;
     });
     return sendMessage(chatId, m, { reply_markup: menuProduits() });
   }
@@ -1058,7 +1079,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (text === "🔄 Restock") {
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     session.etape = "restock_produit"; session.data = {};
-    const b = db.produits.map(p => [`${p.nom} (stock: ${p.stock})`]); b.push(["❌ Annuler"]);
+    const b = db.produits.map(p => [`${p.nom}${p.couleur ? " — " + p.couleur : ""} (stock: ${p.stock})`]); b.push(["❌ Annuler"]);
     return sendMessage(chatId, `🔄 Choisissez le produit :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
@@ -1876,7 +1897,16 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     // Forcer la suite avec la catégorie précisée
     const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie: session.data.categorie, cree_le: new Date().toISOString() };
     db.produits.push(p); const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
-    await envoyerVersSheets("nouveau_produit", { nom: p.nom, categorie: p.categorie, prix_achat: p.prix_achat, prix_vente: p.prix_vente, stock: p.stock, photo_id: p.photo_id || "", couleurs: p.couleurs || "", caracteristiques: p.caracteristiques || "", date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
+    await envoyerVersSheets("nouveau_produit", {
+      nom: p.nom, categorie: p.categorie,
+      prix_achat: p.prix_achat, prix_vente: p.prix_vente,
+      stock_initial: p.stock_initial || p.stock,
+      stock: p.stock,
+      photo_id: p.photo_id || "",
+      photo_url: p.photo_url || "",
+      couleurs: p.couleurs || "",
+      caracteristiques: p.caracteristiques || "",
+      date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ *Produit ajouté !*\n📦 ${p.nom}\n💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n📈 Marge: *${marge} FCFA (${taux}%)*\n🗃️ Stock: ${p.stock}\n🏷️ Catégorie: ${p.categorie}`, { reply_markup: menuProduits() });
   }
@@ -1903,7 +1933,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     session.data.photo_url = photo_url;
     session.etape = "produit_couleurs";
     return sendMessage(chatId,
-      `🎨 *Couleurs disponibles*\n\nIndiquez les couleurs et quantités.\nEx: Noir×5, Or×3, Rose×2\n\nOu tapez "skip" si pas de variante couleur.`,
+      `🎨 *Couleurs et quantités*\n\nIndiquez chaque couleur avec sa quantité.\n\nFormat : *Couleur×Quantité*\nEx: Noir×10, Or×5, Rose×8\n\nChaque couleur sera une ligne séparée dans le stock.\nOu tapez "skip" si pas de variante.`,
       { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } }
     );
   }
@@ -1931,42 +1961,85 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     else if (text === "➖ Aucune") caract = "";
     else caract = text;
 
-    const p = {
-      id: genId(),
-      nom: session.data.nom,
-      prix_achat: session.data.prix_achat,
-      prix_vente: session.data.prix_vente,
-      stock_initial: session.data.stock,
-      stock: session.data.stock,
-      categorie: session.data.categorie,
-      photo_id: session.data.photo_id || null,
-      photo_url: session.data.photo_url || null,
-      couleurs: session.data.couleurs || "",
-      caracteristiques: caract,
-      cree_le: new Date().toISOString()
-    };
-    db.produits.push(p);
-    const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
-    await envoyerVersSheets("nouveau_produit", {
-      nom: p.nom, categorie: p.categorie,
-      prix_achat: p.prix_achat, prix_vente: p.prix_vente,
-      stock_initial: p.stock_initial,
-      stock: p.stock,
-      photo_id: p.photo_id || "",
-      photo_url: p.photo_url || "",
-      couleurs: p.couleurs, caracteristiques: p.caracteristiques,
-      date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" })
-    });
+    const { marge, taux } = calculerMarge(session.data.prix_achat, session.data.prix_vente);
+    const couleursText = session.data.couleurs || "";
+    const dateStr = new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" });
+
+    // Parser les couleurs: "Noir×10, Or×5" → [{couleur:"Noir", stock:10}, ...]
+    let variantes = [];
+    if (couleursText && couleursText !== "skip" && couleursText !== "") {
+      const parts = couleursText.split(/[,;]+/).map(p => p.trim()).filter(Boolean);
+      for (const part of parts) {
+        // Accepter × x * : comme séparateur
+        const match = part.match(/^(.+?)[×x\*:]+\s*(\d+)$/i);
+        if (match) {
+          variantes.push({ couleur: match[1].trim(), stock: parseInt(match[2]) });
+        } else {
+          // Pas de quantité précisée → stock total divisé
+          variantes.push({ couleur: part, stock: session.data.stock });
+        }
+      }
+    }
+
+    // Si pas de couleurs → une seule entrée sans couleur
+    if (variantes.length === 0) {
+      variantes = [{ couleur: "", stock: session.data.stock }];
+    }
+
+    // Créer une ligne par variante couleur
+    let totalStock = 0;
+    for (const v of variantes) {
+      const p = {
+        id: genId(),
+        nom: session.data.nom,
+        prix_achat: session.data.prix_achat,
+        prix_vente: session.data.prix_vente,
+        stock_initial: v.stock,
+        stock: v.stock,
+        categorie: session.data.categorie,
+        couleur: v.couleur,
+        photo_id: session.data.photo_id || null,
+        photo_url: session.data.photo_url || null,
+        caracteristiques: caract,
+        cree_le: new Date().toISOString()
+      };
+      db.produits.push(p);
+      totalStock += v.stock;
+
+      await envoyerVersSheets("nouveau_produit", {
+        nom: p.nom,
+        couleur: p.couleur,
+        categorie: p.categorie,
+        caracteristiques: p.caracteristiques,
+        prix_achat: p.prix_achat,
+        prix_vente: p.prix_vente,
+        stock_initial: p.stock_initial,
+        stock: p.stock,
+        photo_id: p.photo_id || "",
+        photo_url: p.photo_url || "",
+        date: dateStr
+      });
+    }
+
     session.etape = null; session.data = {};
 
+    const dernierProduit = db.produits[db.produits.length - 1];
     let recap = `✅ *Produit ajouté !*\n`;
-    recap += `📦 ${p.nom} (${p.categorie})\n`;
-    recap += `💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n`;
+    recap += `📦 *${dernierProduit.nom}*\n`;
+    recap += `💵 ${dernierProduit.prix_achat} FCFA → ${dernierProduit.prix_vente} FCFA\n`;
     recap += `📈 Marge: *${marge} FCFA (${taux}%)*\n`;
-    recap += `🗃️ Stock: ${p.stock}\n`;
-    if (p.couleurs) recap += `🎨 Couleurs: ${p.couleurs}\n`;
-    if (p.caracteristiques) recap += `🔬 Caract.: ${p.caracteristiques}\n`;
-    if (p.photo_id) recap += `📸 Photo ✅`;
+    if (variantes.length > 1) {
+      recap += `\n🎨 *${variantes.length} couleurs créées :*\n`;
+      variantes.forEach(v => {
+        recap += `   • ${v.couleur || "Sans couleur"} : ${v.stock} unités\n`;
+      });
+      recap += `📦 Stock total: *${totalStock}*\n`;
+    } else {
+      recap += `🗃️ Stock: *${totalStock}*\n`;
+    }
+    if (caract) recap += `🔬 ${caract}\n`;
+    if (dernierProduit.photo_url) recap += `📸 Photo ✅`;
+
     return sendMessage(chatId, recap, { reply_markup: menuProduits() });
   }
 
