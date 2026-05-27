@@ -1845,203 +1845,139 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   }
 
   // ── PRODUIT ──
-  if (session.etape === "produit_nom") { session.data.nom = text; session.etape = "produit_achat"; return sendMessage(chatId, `💵 Prix d'achat (FCFA) :`); }
-  if (session.etape === "produit_achat") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_achat = v; session.etape = "produit_vente"; return sendMessage(chatId, `💰 Prix de vente (FCFA) :`); }
-  if (session.etape === "produit_vente") { const v = parseFloat(text); if (isNaN(v)) return sendMessage(chatId, `⚠️ Invalide.`); session.data.prix_vente = v; session.etape = "produit_stock"; return sendMessage(chatId, `📦 Stock initial :`); }
-  if (session.etape === "produit_stock") {
-    const v = parseInt(text);
-    if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`);
-    session.data.stock = v;
-    session.data.couleurs = [];
-    session.etape = "produit_couleur_nom";
-    return sendMessage(chatId, `🎨 *Couleurs disponibles*\n\nEntrez la 1ère couleur (ex: Noir, Or, Rouge...)\nOu tapez "skip" si pas de couleurs`, {
-      reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true }
-    });
+  // ── AJOUT PRODUIT - flux simple : un produit = un enregistrement ──
+  if (session.etape === "produit_nom") {
+    session.data.nom = text.trim();
+    session.etape = "produit_couleur";
+    return sendMessage(chatId, `🎨 Couleur :`, { reply_markup: { keyboard: [["Noir","Blanc"],["Or","Argent"],["Bleu","Rose"],["Marron","Gris"],["✏️ Autre couleur"],["❌ Annuler"]], resize_keyboard: true } });
   }
 
-  if (session.etape === "produit_couleur_nom") {
-    if (text === "skip") {
-      // Pas de couleurs → passer à la catégorie
-      session.etape = "produit_categorie";
-      return sendMessage(chatId, `🏷️ Catégorie :`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } });
+  if (session.etape === "produit_couleur") {
+    session.data.couleur = text === "✏️ Autre couleur" ? null : text.trim();
+    if (text === "✏️ Autre couleur") {
+      session.etape = "produit_couleur_saisie";
+      return sendMessage(chatId, `✏️ Entrez la couleur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
     }
-    if (text === "✅ Terminer couleurs") {
-      // Toutes les couleurs saisies → passer à catégorie
-      session.etape = "produit_categorie";
-      const recap = session.data.couleurs.map(c => `${c.nom}: ${c.stock}`).join(", ");
-      return sendMessage(chatId, `🏷️ Catégorie :\n✅ Couleurs: ${recap}`, { reply_markup: { keyboard: [["🕶️ Lunettes"], ["🧳 Étuis"], ["✏️ Autre (préciser)"], ["❌ Annuler"]], resize_keyboard: true } });
-    }
-    // Sauvegarder le nom de la couleur, demander le stock
-    session.data.couleur_en_cours = text;
-    session.etape = "produit_couleur_stock";
-    return sendMessage(chatId, `📦 Stock pour la couleur *${text}* :`, {
-      reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true }
-    });
+    session.etape = "produit_caracteristiques";
+    return sendMessage(chatId, `🔬 *Caractéristiques :*`, { reply_markup: { keyboard: [["🔵 Anti-lumière bleue"],["☀️ Photochromic"],["✨ Les deux"],["➖ Aucune"],["❌ Annuler"]], resize_keyboard: true } });
   }
 
-  if (session.etape === "produit_couleur_stock") {
-    const v = parseInt(text);
-    if (isNaN(v)) return sendMessage(chatId, `⚠️ Entier requis.`);
-    // Ajouter la couleur
-    session.data.couleurs.push({ nom: session.data.couleur_en_cours, stock: v });
-    session.data.couleur_en_cours = null;
-    session.etape = "produit_couleur_nom";
-    const recap = session.data.couleurs.map(c => `${c.nom}: ${c.stock}`).join(" | ");
-    return sendMessage(chatId, `✅ Couleur ajoutée !\n🎨 ${recap}\n\nAjoutez une autre couleur ou terminez :`, {
-      reply_markup: { keyboard: [["✅ Terminer couleurs"], ["❌ Annuler"]], resize_keyboard: true }
-    });
+  if (session.etape === "produit_couleur_saisie") {
+    session.data.couleur = text.trim();
+    session.etape = "produit_caracteristiques";
+    return sendMessage(chatId, `🔬 *Caractéristiques :*`, { reply_markup: { keyboard: [["🔵 Anti-lumière bleue"],["☀️ Photochromic"],["✨ Les deux"],["➖ Aucune"],["❌ Annuler"]], resize_keyboard: true } });
   }
-  if (session.etape === "produit_categorie_preciser") {
-    session.data.categorie = text;
+
+  if (session.etape === "produit_caracteristiques") {
+    if (text === "🔵 Anti-lumière bleue") session.data.caracteristiques = "Anti-lumière bleue";
+    else if (text === "☀️ Photochromic") session.data.caracteristiques = "Photochromic";
+    else if (text === "✨ Les deux") session.data.caracteristiques = "Anti-lumière bleue + Photochromic";
+    else if (text === "➖ Aucune") session.data.caracteristiques = "";
+    else session.data.caracteristiques = text.trim();
     session.etape = "produit_categorie";
-    // Forcer la suite avec la catégorie précisée
-    const p = { id: genId(), nom: session.data.nom, prix_achat: session.data.prix_achat, prix_vente: session.data.prix_vente, stock: session.data.stock, categorie: session.data.categorie, cree_le: new Date().toISOString() };
-    db.produits.push(p); const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
-    await envoyerVersSheets("nouveau_produit", {
-      nom: p.nom, categorie: p.categorie,
-      prix_achat: p.prix_achat, prix_vente: p.prix_vente,
-      stock_initial: p.stock_initial || p.stock,
-      stock: p.stock,
-      photo_id: p.photo_id || "",
-      photo_url: p.photo_url || "",
-      couleurs: p.couleurs || "",
-      caracteristiques: p.caracteristiques || "",
-      date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
-    session.etape = null; session.data = {};
-    return sendMessage(chatId, `✅ *Produit ajouté !*\n📦 ${p.nom}\n💵 ${p.prix_achat} FCFA → ${p.prix_vente} FCFA\n📈 Marge: *${marge} FCFA (${taux}%)*\n🗃️ Stock: ${p.stock}\n🏷️ Catégorie: ${p.categorie}`, { reply_markup: menuProduits() });
+    return sendMessage(chatId, `🏷️ *Catégorie :*`, { reply_markup: { keyboard: [["🕶️ Lunettes de vue"],["🕶️ Lunettes soleil"],["✏️ Autre"],["❌ Annuler"]], resize_keyboard: true } });
   }
 
   if (session.etape === "produit_categorie") {
-    if (text === "✏️ Autre (préciser)") {
+    if (text === "✏️ Autre") {
       session.etape = "produit_categorie_preciser";
       return sendMessage(chatId, `✏️ Précisez la catégorie :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
     }
-    session.data.categorie = text.replace("🕶️ ", "").replace("🧳 ", "").replace("✏️ ", "").trim();
-    session.etape = "produit_photo";
-    return sendMessage(chatId, `📸 Photo du produit ? (optionnel)\nEnvoyez une photo ou tapez "skip"`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+    session.data.categorie = text.replace("🕶️ ","").trim();
+    session.etape = "produit_achat";
+    return sendMessage(chatId, `💵 Prix d'achat (FCFA) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
-  if (session.etape === "produit_photo") {
+
+  if (session.etape === "produit_categorie_preciser") {
+    session.data.categorie = text.trim();
+    session.etape = "produit_achat";
+    return sendMessage(chatId, `💵 Prix d'achat (FCFA) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "produit_achat") {
+    const pa = parseFloat(text.replace(/[^0-9.]/g,""));
+    if (isNaN(pa) || pa <= 0) return sendMessage(chatId, `⚠️ Prix invalide. Entrez un nombre :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    session.data.prix_achat = pa;
+    session.etape = "produit_vente";
+    return sendMessage(chatId, `💰 Prix de vente (FCFA) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "produit_vente") {
+    const pv = parseFloat(text.replace(/[^0-9.]/g,""));
+    if (isNaN(pv) || pv <= 0) return sendMessage(chatId, `⚠️ Prix invalide. Entrez un nombre :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    session.data.prix_vente = pv;
+    session.etape = "produit_stock";
+    return sendMessage(chatId, `🗃️ Stock initial (quantité) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "produit_stock") {
+    const st = parseInt(text.replace(/[^0-9]/g,""));
+    if (isNaN(st) || st < 0) return sendMessage(chatId, `⚠️ Quantité invalide. Entrez un nombre :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    session.data.stock = st;
+    session.etape = "produit_photo";
+    return sendMessage(chatId, `📸 Photo du produit ? (optionnel)\nEnvoyez une photo ou tapez "skip"`, { reply_markup: { keyboard: [["skip"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "produit_photo" && session.etape !== "produit_photo_processing") {
     let photo_id = null;
     let photo_url = null;
     if (msg.photo && msg.photo.length > 0) {
       photo_id = msg.photo[msg.photo.length - 1].file_id;
-      // Upload automatique sur Drive
       await sendMessage(chatId, `⏳ Upload photo en cours...`);
-      photo_url = await telechargerEtUploaderPhoto(photo_id, session.data.nom || "produit");
+      photo_url = await telechargerEtUploaderPhoto(photo_id, session.data.nom);
     }
-    session.data.photo_id = photo_id;
-    session.data.photo_url = photo_url;
-    session.etape = "produit_couleurs";
-    return sendMessage(chatId,
-      `🎨 *Couleurs et quantités*\n\nIndiquez chaque couleur avec sa quantité.\n\nFormat : *Couleur×Quantité*\nEx: Noir×10, Or×5, Rose×8\n\nChaque couleur sera une ligne séparée dans le stock.\nOu tapez "skip" si pas de variante.`,
-      { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } }
-    );
-  }
 
-  if (session.etape === "produit_couleurs") {
-    session.data.couleurs = text === "skip" ? "" : text;
-    session.etape = "produit_caracteristiques";
-    return sendMessage(chatId,
-      `🔬 *Caractéristiques*\n\nChoisissez :`,
-      { reply_markup: { keyboard: [
-        ["🔵 Anti-lumière bleue"],
-        ["☀️ Photochromic"],
-        ["✨ Les deux"],
-        ["➖ Aucune"],
-        ["❌ Annuler"]
-      ], resize_keyboard: true } }
-    );
-  }
+    // Créer le produit
+    const p = {
+      id: genId(),
+      nom: session.data.nom,
+      couleur: session.data.couleur || "",
+      categorie: session.data.categorie,
+      caracteristiques: session.data.caracteristiques || "",
+      prix_achat: session.data.prix_achat,
+      prix_vente: session.data.prix_vente,
+      stock_initial: session.data.stock,
+      stock: session.data.stock,
+      photo_id: photo_id,
+      photo_url: photo_url,
+      cree_le: new Date().toISOString()
+    };
+    db.produits.push(p);
 
-  if (session.etape === "produit_caracteristiques") {
-    let caract = "";
-    if (text === "🔵 Anti-lumière bleue") caract = "Anti-lumière bleue";
-    else if (text === "☀️ Photochromic") caract = "Photochromic";
-    else if (text === "✨ Les deux") caract = "Anti-lumière bleue + Photochromic";
-    else if (text === "➖ Aucune") caract = "";
-    else caract = text;
-
-    const { marge, taux } = calculerMarge(session.data.prix_achat, session.data.prix_vente);
-    const couleursText = session.data.couleurs || "";
+    const { marge, taux } = calculerMarge(p.prix_achat, p.prix_vente);
     const dateStr = new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" });
 
-    // Parser les couleurs: "Noir×10, Or×5" → [{couleur:"Noir", stock:10}, ...]
-    let variantes = [];
-    if (couleursText && couleursText !== "skip" && couleursText !== "") {
-      const parts = couleursText.split(/[,;]+/).map(p => p.trim()).filter(Boolean);
-      for (const part of parts) {
-        // Accepter × x * : comme séparateur
-        const match = part.match(/^(.+?)[×x\*:]+\s*(\d+)$/i);
-        if (match) {
-          variantes.push({ couleur: match[1].trim(), stock: parseInt(match[2]) });
-        } else {
-          // Pas de quantité précisée → stock total divisé
-          variantes.push({ couleur: part, stock: session.data.stock });
-        }
-      }
-    }
-
-    // Si pas de couleurs → une seule entrée sans couleur
-    if (variantes.length === 0) {
-      variantes = [{ couleur: "", stock: session.data.stock }];
-    }
-
-    // Créer une ligne par variante couleur
-    let totalStock = 0;
-    for (const v of variantes) {
-      const p = {
-        id: genId(),
-        nom: session.data.nom,
-        prix_achat: session.data.prix_achat,
-        prix_vente: session.data.prix_vente,
-        stock_initial: v.stock,
-        stock: v.stock,
-        categorie: session.data.categorie,
-        couleur: v.couleur,
-        photo_id: session.data.photo_id || null,
-        photo_url: session.data.photo_url || null,
-        caracteristiques: caract,
-        cree_le: new Date().toISOString()
-      };
-      db.produits.push(p);
-      totalStock += v.stock;
-
-      await envoyerVersSheets("nouveau_produit", {
-        nom: p.nom,
-        couleur: p.couleur,
-        categorie: p.categorie,
-        caracteristiques: p.caracteristiques,
-        prix_achat: p.prix_achat,
-        prix_vente: p.prix_vente,
-        stock_initial: p.stock_initial,
-        stock: p.stock,
-        photo_id: p.photo_id || "",
-        photo_url: p.photo_url || "",
-        date: dateStr
-      });
-    }
+    await envoyerVersSheets("nouveau_produit", {
+      nom: p.nom,
+      couleur: p.couleur,
+      categorie: p.categorie,
+      caracteristiques: p.caracteristiques,
+      prix_achat: p.prix_achat,
+      prix_vente: p.prix_vente,
+      stock_initial: p.stock_initial,
+      stock: p.stock,
+      photo_id: p.photo_id || "",
+      photo_url: p.photo_url || "",
+      date: dateStr
+    });
 
     session.etape = null; session.data = {};
 
-    const dernierProduit = db.produits[db.produits.length - 1];
-    let recap = `✅ *Produit ajouté !*\n`;
-    recap += `📦 *${dernierProduit.nom}*\n`;
-    recap += `💵 ${dernierProduit.prix_achat} FCFA → ${dernierProduit.prix_vente} FCFA\n`;
+    let recap = `✅ *Produit enregistré !*\n\n`;
+    recap += `📦 *${p.nom}*`;
+    if (p.couleur) recap += ` — ${p.couleur}`;
+    recap += `\n`;
+    recap += `🏷️ ${p.categorie}\n`;
+    if (p.caracteristiques) recap += `🔬 ${p.caracteristiques}\n`;
+    recap += `💵 Achat: ${p.prix_achat} FCFA | Vente: ${p.prix_vente} FCFA\n`;
     recap += `📈 Marge: *${marge} FCFA (${taux}%)*\n`;
-    if (variantes.length > 1) {
-      recap += `\n🎨 *${variantes.length} couleurs créées :*\n`;
-      variantes.forEach(v => {
-        recap += `   • ${v.couleur || "Sans couleur"} : ${v.stock} unités\n`;
-      });
-      recap += `📦 Stock total: *${totalStock}*\n`;
-    } else {
-      recap += `🗃️ Stock: *${totalStock}*\n`;
-    }
-    if (caract) recap += `🔬 ${caract}\n`;
-    if (dernierProduit.photo_url) recap += `📸 Photo ✅`;
+    recap += `🗃️ Stock: *${p.stock}*\n`;
+    if (p.photo_url) recap += `📸 Photo ✅\n`;
+    recap += `\n➕ Pour ajouter une autre couleur, appuyez sur *Ajouter produit*`;
 
     return sendMessage(chatId, recap, { reply_markup: menuProduits() });
   }
+
 
   // ── CLIENT (avec envoi carte fidélité) ──
   if (session.etape === "client_nom") { session.data.nom = text; session.etape = "client_email"; return sendMessage(chatId, `📧 Email (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } }); }
