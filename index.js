@@ -693,25 +693,31 @@ async function finaliserVente(chatId, session, clientNom) {
     return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
   }
 
-  // Si nouveau client sans email → demander email pour lui envoyer la carte
-  if (result.client && !result.client.email && result.client.nb_achats === 1) {
+  // Si client sans email → demander l'email pour la carte fidélité
+  if (result.client && !result.client.email) {
     session.etape = "vente_client_email_apres";
     session.data = { result };
     return sendMessage(chatId,
-      `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n💰 *${result.vente.montant_total} FCFA*\n\n📧 *Email du client* pour lui envoyer sa carte fidélité :`,
+      `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n💰 *${result.vente.montant_total} FCFA*\n\n📧 *Email de ${result.client.nom}* pour sa carte fidélité :`,
       { reply_markup: { keyboard: [["❌ Pas d'email"], ["❌ Annuler"]], resize_keyboard: true } }
     );
   }
 
   session.etape = null; session.data = {};
 
+  // DEBUG - voir état client
+  console.log(`📧 Client: ${result.client ? result.client.nom : 'null'} | email: ${result.client ? result.client.email || 'AUCUN' : 'null'} | nb_achats: ${result.client ? result.client.nb_achats : 'null'} | reduction: ${result.reductionAppliquee}`);
+
   // Envoyer carte fidélité au premier achat
   if (result.client && result.client.email && result.client.nb_achats === 1) {
-    await envoyerCarteFidelite(result.client, result.vente);
+    console.log(`📧 Envoi carte fidélité à ${result.client.email}...`);
+    const ok = await envoyerCarteFidelite(result.client, result.vente);
+    console.log(`📧 Carte fidélité: ${ok ? '✅ envoyée' : '❌ erreur'}`);
   }
   // Envoyer email réduction si applicable
-  if (result.reductionAppliquee && result.client && result.client.email && result.client.nb_achats > 1) {
+  if (result.reductionAppliquee && result.client && result.client.email) {
     const tauxReel = Math.round(getTauxReduction(result.client.nb_achats - 1) * 100);
+    console.log(`📧 Envoi email réduction ${tauxReel}% à ${result.client.email}...`);
     await envoyerEmailReduction(result.client, result.vente, result.montantAvant || result.vente.montant_total, result.montantReduction || 0, tauxReel);
   }
   let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
@@ -1446,6 +1452,14 @@ Si prix non visible mets 0. Si plusieurs ventes, plusieurs objets.` },
         const result = await enregistrerVenteComplete(v.produit, v.quantite || 1, v.client || null, v.prix || null);
         if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
         else {
+          // Envoyer emails
+          if (result.client && result.client.email && result.client.nb_achats === 1) {
+            await envoyerCarteFidelite(result.client, result.vente);
+          }
+          if (result.reductionAppliquee && result.client && result.client.email) {
+            const tauxReel = Math.round(getTauxReduction(result.client.nb_achats - 1) * 100);
+            await envoyerEmailReduction(result.client, result.vente, result.montantAvant || result.vente.montant_total, result.montantReduction || 0, tauxReel);
+          }
           resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
           if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-15%'}`;
           if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
@@ -2000,28 +2014,43 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
     for (const v of ventesExtraites) {
       if (!v.produit || !v.quantite) continue;
 
-      // Si client avec tel/email fournis et pas encore dans la DB → créer la fiche
-      if (v.client && (v.telephone || v.email)) {
+      // Créer ou mettre à jour le client (même sans tel/email)
+      if (v.client) {
         const existe = db.clients.find(c => c.nom.toLowerCase().includes(v.client.toLowerCase()));
         if (!existe) {
           const nc = {
             id: genId(), nom: v.client.trim(), email: v.email || "", telephone: v.telephone || "",
-            note: "Créé via vente texte", nb_achats: 0, ca_total: 0,
+            note: "Créé via vente", nb_achats: 0, ca_total: 0,
             carte_envoyee: false, derniere_visite: new Date().toISOString(), cree_le: new Date().toISOString(),
           };
           db.clients.push(nc);
-          await envoyerVersSheets("nouveau_client", { nom: nc.nom, email: nc.email, telephone: nc.telephone, note: nc.note, date: new Date().toLocaleString("fr-FR") });
-          if (nc.email) { const envoye = await envoyerCarteFidelite(nc); nc.carte_envoyee = envoye; }
+          await envoyerVersSheets("nouveau_client", { nom: nc.nom, email: nc.email, telephone: nc.telephone, note: nc.note, date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
         } else {
-          // Mettre à jour tel/email si manquants
           if (v.telephone && !existe.telephone) existe.telephone = v.telephone;
-          if (v.email && !existe.email) existe.email = v.email;
+          if (v.email && !existe.email) {
+            existe.email = v.email;
+            await envoyerVersSheets("nouveau_client", { nom: existe.nom, email: existe.email, telephone: existe.telephone || "", note: existe.note, date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
+          }
         }
       }
 
       const result = await enregistrerVenteComplete(v.produit, v.quantite, v.client || null);
       if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
       else {
+        // Envoyer carte fidélité si premier achat avec email
+        if (result.client && result.client.email && result.client.nb_achats === 1) {
+          await envoyerCarteFidelite(result.client, result.vente);
+        }
+        // Envoyer email réduction si applicable
+        if (result.reductionAppliquee && result.client && result.client.email) {
+          const tauxReel = Math.round(getTauxReduction(result.client.nb_achats - 1) * 100);
+          await envoyerEmailReduction(result.client, result.vente, result.montantAvant || result.vente.montant_total, result.montantReduction || 0, tauxReel);
+        }
+        // Envoyer email réduction si applicable
+        if (result.reductionAppliquee && result.client && result.client.email) {
+          const tauxReel = Math.round(getTauxReduction(result.client.nb_achats - 1) * 100);
+          await envoyerEmailReduction(result.client, result.vente, result.montantAvant || result.vente.montant_total, result.montantReduction || 0, tauxReel);
+        }
         resultMsg += `✅ *${result.vente.produit_nom}* x${result.vente.quantite} — ${result.vente.montant_total} FCFA`;
         if (result.reductionAppliquee) resultMsg += ` 🎁${result.labelReduction || '-15%'}`;
         if (result.etuiOffert && !result.etuiOffert.erreur) resultMsg += ` 🕶️étui offert`;
