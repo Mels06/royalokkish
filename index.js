@@ -519,7 +519,19 @@ async function chargerDepuisSheets(force = false) {
         montant_total: parseFloat(v["Montant Total"] || v.montant_total) || 0,
         marge_totale: parseFloat(v["Marge Totale"] || v.marge_totale) || 0,
         reduction: parseFloat(v["Réduction"] || v.reduction) || 0,
-        date: v["Date"] || v.date || new Date().toISOString(),
+        prix_achat_unitaire: parseFloat(v["Prix Achat Unit."] || v.prix_achat_unitaire) || 0,
+        produit_couleur: v["Couleur"] || v.produit_couleur || "",
+        date: (() => {
+          const d = v["Date"] || v.date || "";
+          if (!d) return new Date().toISOString();
+          // Convertir "28/05/2026 15:15:04" → ISO
+          if (typeof d === 'string' && d.includes('/')) {
+            const [datePart, timePart] = d.split(' ');
+            const [jour, mois, annee] = datePart.split('/');
+            return new Date(`${annee}-${mois}-${jour}T${timePart || '00:00:00'}`).toISOString();
+          }
+          return new Date(d).toISOString();
+        })(),
       }));
       console.log(`✅ ${db.ventes.length} vente(s) chargée(s)`);
     }
@@ -532,7 +544,16 @@ async function chargerDepuisSheets(force = false) {
         montant: parseFloat(c["Montant"] || c.montant) || 0,
         categorie: c["Catégorie"] || c.categorie || "",
         produit_lie: c["Produit Lié"] || c.produit_lie || null,
-        date: c["Date"] || c.date || new Date().toISOString(),
+        date: (() => {
+          const d = c["Date"] || c.date || "";
+          if (!d) return new Date().toISOString();
+          if (typeof d === 'string' && d.includes('/')) {
+            const [datePart, timePart] = d.split(' ');
+            const [jour, mois, annee] = datePart.split('/');
+            return new Date(`${annee}-${mois}-${jour}T${timePart || '00:00:00'}`).toISOString();
+          }
+          return new Date(d).toISOString();
+        })(),
       }));
       console.log(`✅ ${db.charges.length} charge(s) chargée(s)`);
     }
@@ -800,7 +821,13 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
 // FINALISER UNE VENTE (partagé entre vente_client et nouveau_client)
 // ─────────────────────────────────────────
 async function finaliserVente(chatId, session, clientNom) {
-  const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom);
+  // Calculer le prix avec réduction manuelle si applicable
+  let prixOverride = null;
+  if (session.data.reduction_manuelle && session.data.reduction_manuelle > 0) {
+    const prixBase = session.data.produit.prix_vente;
+    prixOverride = Math.round(prixBase * (1 - session.data.reduction_manuelle / 100));
+  }
+  const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom, prixOverride);
   if (result.erreur) {
     session.etape = null; session.data = {};
     return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
@@ -1227,10 +1254,13 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     let labelPeriode = "";
 
     if (text === "📅 Aujourd'hui") {
-      debut = new Date(now); debut.setHours(0,0,0,0);
+      // Utiliser le fuseau Africa/Porto-Novo (UTC+1)
+      debut = new Date(now.toLocaleDateString('fr-FR', {timeZone: 'Africa/Porto-Novo'}).split('/').reverse().join('-') + 'T00:00:00+01:00');
       labelPeriode = "Aujourd'hui";
     } else if (text === "📅 Cette semaine") {
-      debut = new Date(now); debut.setDate(debut.getDate() - debut.getDay());
+      debut = new Date(now);
+      const jourSemaine = debut.getDay() || 7; // 0=dim→7, 1=lun→1...
+      debut.setDate(debut.getDate() - (jourSemaine - 1)); // revenir au lundi
       debut.setHours(0,0,0,0);
       labelPeriode = "Cette semaine";
     } else if (text === "📅 Ce mois") {
@@ -2051,7 +2081,31 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "vente_quantite") {
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     if (qte > session.data.produit.stock) return sendMessage(chatId, `⚠️ Max: ${session.data.produit.stock}`);
-    session.data.quantite = qte; session.etape = "vente_client";
+    session.data.quantite = qte;
+    // Proposer une réduction manuelle
+    const p = session.data.produit;
+    const prixTotal = p.prix_vente * qte;
+    session.etape = "vente_reduction_manuelle";
+    return sendMessage(chatId,
+      `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
+      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Autre %"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "vente_reduction_manuelle") {
+    let reductionManuelle = 0;
+    if (text === "❌ Pas de réduction") {
+      reductionManuelle = 0;
+    } else if (text === "✏️ Autre %") {
+      session.etape = "vente_reduction_saisie";
+      return sendMessage(chatId, `✏️ Entrez le pourcentage (ex: 25) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    } else {
+      const pct = parseFloat(text.replace('%',''));
+      if (isNaN(pct) || pct < 0 || pct > 100) return sendMessage(chatId, `⚠️ Pourcentage invalide.`);
+      reductionManuelle = pct;
+    }
+    session.data.reduction_manuelle = reductionManuelle;
+    session.etape = "vente_client";
     // Filtrer les vrais clients (pas les produits mal créés)
     const nomsProduitsLower = db.produits.map(p => p.nom.toLowerCase());
     const vraisClients = db.clients.filter(c => 
@@ -2062,6 +2116,21 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
     return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
+  if (session.etape === "vente_reduction_saisie") {
+    const pct = parseFloat(text.replace('%',''));
+    if (isNaN(pct) || pct < 0 || pct > 100) return sendMessage(chatId, `⚠️ Entre 0 et 100.`);
+    session.data.reduction_manuelle = pct;
+    session.etape = "vente_client";
+    // Afficher le nouveau prix
+    const p = session.data.produit;
+    const prixBase = p.prix_vente * session.data.quantite;
+    const prixReduit = Math.round(prixBase * (1 - pct/100));
+    return sendMessage(chatId,
+      `✅ Réduction *${pct}%* appliquée\n💰 ${prixBase} → *${prixReduit} FCFA*\n\n👤 Client ?`,
+      { reply_markup: { keyboard: [...db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase())).map(c => [c.nb_achats >= 2 ? `⭐ \${c.nom}` : c.nom]), ["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
   if (session.etape === "vente_client") {
     const clientNom = text.replace("⭐ ", "").trim();
 
