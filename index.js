@@ -424,7 +424,7 @@ async function uploaderLogoRoyal() {
   }
 }
 
-// Télécharger une photo Telegram et la convertir en base64 pour l'email
+// Télécharger une photo Telegram et l'uploader sur Imgur (URL publique permanente)
 async function telechargerEtUploaderPhoto(fileId, nomProduit) {
   try {
     const fileResp = await axios.get(`${TELEGRAM_API}/getFile?file_id=${fileId}`);
@@ -435,11 +435,25 @@ async function telechargerEtUploaderPhoto(fileId, nomProduit) {
     );
     const buffer = Buffer.from(imageResp.data);
     const base64 = buffer.toString('base64');
-    const dataUrl = `data:image/jpeg;base64,${base64}`;
+
+    // Upload sur Imgur (gratuit, URL publique, pas d'API à activer)
+    const imgurResp = await axios.post(
+      "https://api.imgur.com/3/image",
+      { image: base64, type: "base64", name: nomProduit },
+      { headers: { Authorization: `Client-ID ${process.env.IMGUR_CLIENT_ID || "546c25a59c58ad7"}` } }
+    );
+
+    if (imgurResp.data && imgurResp.data.data && imgurResp.data.data.link) {
+      const url = imgurResp.data.data.link;
+      console.log(`📸 Photo uploadée sur Imgur: ${url}`);
+      return url;
+    }
+
+    // Fallback base64 pour l'email si Imgur échoue
     console.log(`📸 Photo convertie en base64 (${Math.round(base64.length/1024)}KB)`);
-    return dataUrl;
+    return `data:image/jpeg;base64,${base64}`;
   } catch (err) {
-    console.error("❌ Téléchargement photo Telegram:", err.message);
+    console.error("❌ Upload photo:", err.message);
     return null;
   }
 }
@@ -1858,7 +1872,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     const p = session.data.produit; const avant = p.stock; p.stock += qte;
     db.historique_stock.unshift({ id: genId(), produit_id: p.id, produit_nom: p.nom, operation: "add", quantite: qte, stock_avant: avant, stock_apres: p.stock, note: "Restock", date: new Date().toISOString() });
-    await envoyerVersSheets("mouvement_stock", { produit: p.nom, operation: "add", quantite: qte, stock_avant: avant, stock_apres: p.stock, note: "Restock", date: new Date().toLocaleString("fr-FR") });
+    await envoyerVersSheets("mouvement_stock", { produit: p.nom, couleur: p.couleur || "", operation: "add", quantite: qte, stock_avant: avant, stock_apres: p.stock, note: "Restock", date: new Date().toLocaleString("fr-FR") });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ *Restock !*\n📦 ${p.nom} : ${avant} → *${p.stock} unités*`, { reply_markup: menuProduits() });
   }
