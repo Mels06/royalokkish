@@ -825,6 +825,13 @@ async function finaliserVente(chatId, session, clientNom) {
     }
   }
   if (result.alerte) rep += `\n\n⚠️ *Stock lunettes bas !*`;
+  // Notification stock critique (<=2)
+  if (result.produit.stock <= 2 && result.produit.stock > 0) {
+    await sendMessage(chatId, `🚨 *STOCK CRITIQUE !*\n📦 ${result.produit.nom}${result.produit.couleur ? ' — '+result.produit.couleur : ''}\n⚠️ Il ne reste que *${result.produit.stock}* unité(s) !`);
+  } else if (result.produit.stock === 0) {
+    await sendMessage(chatId, `🔴 *RUPTURE DE STOCK !*\n📦 ${result.produit.nom}${result.produit.couleur ? ' — '+result.produit.couleur : ''}\n❌ Plus aucune unité disponible !`);
+  }
+
   return sendMessage(chatId, rep, { reply_markup: menuVentes() });
 }
 
@@ -998,7 +1005,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
       m += `   💵 ${variantes[0].prix_achat} FCFA → ${variantes[0].prix_vente} FCFA\n`;
       if (variantes[0].caracteristiques) m += `   🔬 ${variantes[0].caracteristiques}\n`;
       variantes.forEach(v => {
-        const sv = v.stock === 0 ? "🔴" : v.stock <= 3 ? "🟡" : "🟢";
+        const sv = v.stock === 0 ? "🔴" : v.stock <= 5 ? "🟡" : "🟢";
         const couleurLabel = v.couleur ? `🎨 ${v.couleur}` : "📦 Sans couleur";
         m += `   ${sv} ${couleurLabel} : *${v.stock}* / ${v.stock_initial} (init)\n`;
       });
@@ -1009,9 +1016,10 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
 
   if (text === "🔄 Restock") {
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
-    session.etape = "restock_produit"; session.data = {};
-    const b = db.produits.map(p => [`${p.nom}${p.couleur ? " — " + p.couleur : ""} (stock: ${p.stock})`]); b.push(["❌ Annuler"]);
-    return sendMessage(chatId, `🔄 Choisissez le produit :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    session.etape = "restock_modele"; session.data = {};
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `🔄 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   if (text === "➕ Ajouter produit") {
@@ -1147,9 +1155,10 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (text === "➕ Vente rapide") {
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Ajoutez d'abord un produit !`, { reply_markup: menuVentes() });
-    session.etape = "vente_produit"; session.data = {};
-    const b = db.produits.filter(p => p.stock > 0).map(p => [`${p.nom}${p.couleur ? " " + p.couleur : ""} (${p.stock} dispo)`]); b.push(["❌ Annuler"]);
-    return sendMessage(chatId, `🛒 Choisissez le produit :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    session.etape = "vente_modele"; session.data = {};
+    const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))];
+    const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `🛒 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   if (text === "📝 Vente texte") {
@@ -1291,8 +1300,8 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     const alertes = getAlertes(); const ruptures = getRuptures();
     if (alertes.length === 0 && ruptures.length === 0) return sendMessage(chatId, `✅ Stock OK !`, { reply_markup: menuPrincipal() });
     let m = `🚨 *ALERTES STOCK*\n\n`;
-    if (ruptures.length > 0) { m += `🔴 *Ruptures :*\n`; ruptures.forEach(p => m += `• ${p.nom}\n`); m += "\n"; }
-    if (alertes.length > 0) { m += `🟡 *Stock bas :*\n`; alertes.forEach(p => m += `• ${p.nom} — ${p.stock} unité(s)\n`); }
+    if (ruptures.length > 0) { m += `🔴 *Ruptures :*\n`; ruptures.forEach(p => m += `• ${p.nom}${p.couleur ? ' — '+p.couleur : ''}\n`); m += "\n"; }
+    if (alertes.length > 0) { m += `🟡 *Stock bas :*\n`; alertes.forEach(p => m += `• ${p.nom}${p.couleur ? ' — '+p.couleur : ''} — ${p.stock} unité(s)\n`); }
     return sendMessage(chatId, m, { reply_markup: menuPrincipal() });
   }
 
@@ -1793,16 +1802,42 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   }
 
   // ── RESTOCK ──
-  if (session.etape === "restock_produit") {
-    const nomAvecCouleur = text.replace(/ \(\d+ dispo\)$/, '').trim();
-    const p = db.produits.find(p => {
-      const label = p.couleur ? p.nom + " " + p.couleur : p.nom;
-      return label === nomAvecCouleur || p.nom === nomAvecCouleur;
-    });
-    if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`);
-    session.data.produit = p; session.etape = "restock_quantite";
-    return sendMessage(chatId, `🔄 *${p.nom}* — Stock: ${p.stock}\n\nQuantité à ajouter :`, { reply_markup: { keyboard: [["10"], ["20"], ["50"], ["100"], ["❌ Annuler"]], resize_keyboard: true } });
+  // Restock étape 1: modèle choisi → afficher couleurs
+  if (session.etape === "restock_modele") {
+    const nomModele = text.replace("📦 ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nomModele);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Non trouvé.`);
+    if (variantes.length === 1 && !variantes[0].couleur) {
+      session.data.produit = variantes[0];
+      session.etape = "restock_qte";
+      return sendMessage(chatId, `📦 *${variantes[0].nom}*\n🗃️ Stock actuel: ${variantes[0].stock}\n\n➕ Quantité à ajouter :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
+    session.data.nomModele = nomModele;
+    session.etape = "restock_produit";
+    const brc = variantes.map(p => [`🎨 ${p.couleur} (${p.stock} dispo)`]); brc.push(["❌ Annuler"]);
+    return sendMessage(chatId, `🎨 Couleur de *${nomModele}* :`, { reply_markup: { keyboard: brc, resize_keyboard: true } });
   }
+
+  // Restock étape 2: couleur choisie
+  if (session.etape === "restock_produit") {
+    const couleurChoisie = text.replace("🎨 ", "").replace(/ \(\d+ dispo\)$/, '').trim();
+    const nomModele = session.data.nomModele || "";
+    const p = db.produits.find(p => p.nom === nomModele && p.couleur === couleurChoisie);
+    if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`);
+    session.data.produit = p;
+    session.etape = "restock_qte";
+    return sendMessage(chatId, `📦 *${p.nom} — ${p.couleur}*\n🗃️ Stock actuel: ${p.stock}\n\n➕ Quantité à ajouter :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "restock_qte") {
+    const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
+    const p = session.data.produit; const avant = p.stock;
+    p.stock += qte;
+    await envoyerVersSheets("mouvement_stock", { produit: p.nom, couleur: p.couleur || "", operation: "add", quantite: qte, stock_avant: avant, stock_apres: p.stock, note: "Restock", date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Restock effectué !\n📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}*\n🗃️ Nouveau stock: *${p.stock}*`, { reply_markup: menuProduits() });
+  }
+
   if (session.etape === "restock_quantite") {
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     const p = session.data.produit; const avant = p.stock; p.stock += qte;
@@ -1979,12 +2014,29 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   }
 
   // ── VENTE RAPIDE ──
+  // Étape 1: modèle choisi → afficher les couleurs dispo
+  if (session.etape === "vente_modele") {
+    const nomModele = text.replace("📦 ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nomModele && p.stock > 0);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Stock épuisé !`, { reply_markup: menuVentes() });
+    if (variantes.length === 1 && !variantes[0].couleur) {
+      // Pas de couleur → aller directement à la quantité
+      session.data.produit = variantes[0];
+      session.etape = "vente_quantite";
+      return sendMessage(chatId, `📦 *${variantes[0].nom}*\n🗃️ Stock: ${variantes[0].stock}\n\n🔢 Quantité ?`, { reply_markup: { keyboard: [["1"],["2"],["3"],["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Afficher les couleurs disponibles
+    session.data.nomModele = nomModele;
+    session.etape = "vente_produit";
+    const b = variantes.map(p => [`🎨 ${p.couleur} (${p.stock} dispo)`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `🎨 Couleur de *${nomModele}* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  // Étape 2: couleur choisie → aller à la quantité
   if (session.etape === "vente_produit") {
-    const nomAvecCouleur = text.replace(/ \(\d+ dispo\)$/, '').trim();
-    const p = db.produits.find(p => {
-      const label = p.couleur ? p.nom + " " + p.couleur : p.nom;
-      return label === nomAvecCouleur || p.nom === nomAvecCouleur;
-    });
+    const couleurChoisie = text.replace("🎨 ", "").replace(/ \(\d+ dispo\)$/, '').trim();
+    const nomModele = session.data.nomModele;
+    const p = db.produits.find(p => p.nom === nomModele && p.couleur === couleurChoisie && p.stock > 0);
     if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`);
     if (p.stock === 0) return sendMessage(chatId, `🔴 Stock épuisé !`);
     session.data.produit = p; session.etape = "vente_quantite";
