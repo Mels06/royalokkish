@@ -123,7 +123,7 @@ async function envoyerCarteFidelite(client, vente = null) {
     </div>
     <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
   </div>
-  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 royaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
+  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
 </div></body></html>`;
     const ok = await envoyerEmail(client.email, `👑 Votre carte fidélité Royale, ${prenom} — Royal Tchitchi`, html);
     return ok;
@@ -150,7 +150,7 @@ async function envoyerEmailRelance(client) {
     <div class="tx">Nous serions ravis de vous accueillir à nouveau.</div>
     <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
   </div>
-  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 royaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
+  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
 </div></body></html>`;
     const ok = await envoyerEmail(client.email, `👑 ${prenom}, le Royaume Royal Tchitchi vous convie`, html);
     return ok;
@@ -186,7 +186,7 @@ async function envoyerEmailReduction(client, vente, montantAvant, reduction, tau
     <div class="tx">Cette réduction est un privilège exclusif réservé à nos membres fidèles.<br>Nous vous remercions de faire confiance au Royaume Royal Tchitchi.</div>
     <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
   </div>
-  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 royaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
+  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
 </div></body></html>`;
     await envoyerEmail(client.email, `🎁 Votre réduction fidélité appliquée, ${prenom} !`, html);
   } catch (err) { console.error("Erreur réduction:", err.message); }
