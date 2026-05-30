@@ -995,10 +995,10 @@ async function sendMessage(chatId, text, options = {}) {
 function menuPrincipal() {
   return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🤖 IA"]], resize_keyboard: true };
 }
-function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["🗑️ Supprimer événement", "🏠 Menu"]], resize_keyboard: true }; }
+function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["✏️ Modifier produit", "🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["✏️ Modifier vente", "🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["✏️ Modifier événement", "🗑️ Supprimer événement"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], ["🏆 Top clients"], ["🔄 Clients récurrents", "😴 Clients inactifs"], ["📧 Renvoyer carte fidélité"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuIA() { return { keyboard: [["📊 Analyse rentabilité"], ["🚨 Produits à restock"], ["💡 Conseils CA"], ["❓ Question libre"], ["🏠 Menu"]], resize_keyboard: true }; }
 
@@ -1813,6 +1813,203 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ Vente supprimée${produit ? ' et stock restauré' : ''}.`, { reply_markup: menuVentes() });
   }
+
+  // ══════════════════════════════════════════
+  // MODIFICATION CLIENT
+  // ══════════════════════════════════════════
+  if (text === "✏️ Modifier client") {
+    await chargerDepuisSheets();
+    const vrais = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
+    if (vrais.length === 0) return sendMessage(chatId, `👥 Aucun client.`, { reply_markup: menuClients() });
+    const b = vrais.map(c => [`✏️ ${c.nom}`]); b.push(["❌ Annuler"]);
+    session.etape = "modifier_client_choix"; session.data = {};
+    return sendMessage(chatId, `✏️ *Modifier quel client ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_client_choix") {
+    const nom = text.replace("✏️ ", "").trim();
+    const client = db.clients.find(c => c.nom === nom);
+    if (!client) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuClients() });
+    session.data.client = client;
+    session.etape = "modifier_client_champ";
+    return sendMessage(chatId,
+      `✏️ *${client.nom}*\n📧 ${client.email||'-'} | 📱 ${client.telephone||'-'}\n\nQue modifier ?`,
+      { reply_markup: { keyboard: [["📛 Nom","📧 Email"],["📱 Téléphone","📝 Note"],["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+  if (session.etape === "modifier_client_champ") {
+    const champMap = {"📛 Nom":"nom","📧 Email":"email","📱 Téléphone":"telephone","📝 Note":"note"};
+    if (!champMap[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuClients() }); }
+    session.data.champ = champMap[text];
+    session.etape = "modifier_client_valeur";
+    return sendMessage(chatId, `✏️ Nouvelle valeur pour *${text}* :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_client_valeur") {
+    const client = session.data.client;
+    client[session.data.champ] = text.trim();
+    await envoyerVersSheets("mettre_a_jour_client", { id: client.id, nom: client.nom, email: client.email, telephone: client.telephone, note: client.note });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *${client.nom}* mis à jour !`, { reply_markup: menuClients() });
+  }
+
+  // ══════════════════════════════════════════
+  // MODIFICATION PRODUIT
+  // ══════════════════════════════════════════
+  if (text === "✏️ Modifier produit") {
+    await chargerDepuisSheets();
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const b = nomsUniques.map(nom => [`✏️ ${nom}`]); b.push(["❌ Annuler"]);
+    session.etape = "modifier_produit_modele"; session.data = {};
+    return sendMessage(chatId, `✏️ *Modifier quel modèle ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_produit_modele") {
+    const nom = text.replace("✏️ ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nom);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuProduits() });
+    if (variantes.length > 1) {
+      session.data.nomModele = nom; session.etape = "modifier_produit_couleur";
+      const b = variantes.map(v => [`✏️ ${v.couleur}`]); b.push(["❌ Annuler"]);
+      return sendMessage(chatId, `🎨 Quelle couleur ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    session.data.produit = variantes[0]; session.etape = "modifier_produit_champ";
+    const p = variantes[0];
+    return sendMessage(chatId, `✏️ *${p.nom}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente} | Stock: ${p.stock}\n\nQue modifier ?`,
+      { reply_markup: { keyboard: [["💵 Prix achat","💰 Prix vente"],["📦 Stock","🎨 Couleur"],["🔬 Caractéristiques"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_produit_couleur") {
+    const couleur = text.replace("✏️ ", "").trim();
+    const p = db.produits.find(p => p.nom === session.data.nomModele && p.couleur === couleur);
+    if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuProduits() });
+    session.data.produit = p; session.etape = "modifier_produit_champ";
+    return sendMessage(chatId, `✏️ *${p.nom} — ${p.couleur}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente} | Stock: ${p.stock}\n\nQue modifier ?`,
+      { reply_markup: { keyboard: [["💵 Prix achat","💰 Prix vente"],["📦 Stock","🎨 Couleur"],["🔬 Caractéristiques"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_produit_champ") {
+    const cm = {"💵 Prix achat":"prix_achat","💰 Prix vente":"prix_vente","📦 Stock":"stock","🎨 Couleur":"couleur","🔬 Caractéristiques":"caracteristiques"};
+    if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuProduits() }); }
+    session.data.champ = cm[text]; session.etape = "modifier_produit_valeur";
+    return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_produit_valeur") {
+    const p = session.data.produit; const champ = session.data.champ;
+    const val = ['prix_achat','prix_vente','stock'].includes(champ) ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
+    if (['prix_achat','prix_vente','stock'].includes(champ) && isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
+    p[champ] = val;
+    await envoyerVersSheets("modifier_produit", { id: p.id, nom: p.nom, couleur: p.couleur||"", champ, valeur: val });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *${p.nom}${p.couleur?' — '+p.couleur:''}* mis à jour !`, { reply_markup: menuProduits() });
+  }
+
+  // ══════════════════════════════════════════
+  // MODIFICATION ÉVÉNEMENT
+  // ══════════════════════════════════════════
+  if (text === "✏️ Modifier événement") {
+    await chargerDepuisSheets();
+    if (db.agenda.length === 0) return sendMessage(chatId, `📅 Aucun événement.`, { reply_markup: menuAgenda() });
+    const b = db.agenda.map(e => [`✏️ ${e.titre} — ${formatDateFR(e.date)}`]); b.push(["❌ Annuler"]);
+    session.etape = "modifier_event_choix"; session.data = {};
+    return sendMessage(chatId, `✏️ *Modifier quel événement ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_event_choix") {
+    const label = text.replace("✏️ ", "").trim();
+    const event = db.agenda.find(e => `${e.titre} — ${formatDateFR(e.date)}` === label);
+    if (!event) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuAgenda() });
+    session.data.event = event; session.etape = "modifier_event_champ";
+    return sendMessage(chatId, `✏️ *${event.titre}* — ${formatDateFR(event.date)}\nQue modifier ?`,
+      { reply_markup: { keyboard: [["📛 Titre","📅 Date"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_event_champ") {
+    if (text !== "📛 Titre" && text !== "📅 Date") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuAgenda() }); }
+    session.data.champ = text === "📛 Titre" ? "titre" : "date";
+    session.etape = "modifier_event_valeur";
+    return sendMessage(chatId, text === "📛 Titre" ? `✏️ Nouveau titre :` : `📅 Nouvelle date (ex: 15/06/2026 14:00) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_event_valeur") {
+    const event = session.data.event;
+    if (session.data.champ === "titre") { event.titre = text.trim(); }
+    else {
+      const parts = text.trim().split(' '); const [j,m,a] = parts[0].split('/'); const t = parts[1]||"00:00";
+      event.date = new Date(`${a}-${m}-${j}T${t}:00+01:00`).toISOString(); event.rappels_envoyes = [];
+    }
+    await envoyerVersSheets("modifier_evenement", { id: event.id, titre: event.titre, date_iso: event.date });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Événement *${event.titre}* mis à jour !`, { reply_markup: menuAgenda() });
+  }
+
+  // ══════════════════════════════════════════
+  // MODIFICATION CHARGE
+  // ══════════════════════════════════════════
+  if (text === "✏️ Modifier charge") {
+    await chargerDepuisSheets();
+    if (db.charges.length === 0) return sendMessage(chatId, `📊 Aucune charge.`);
+    const b = db.charges.map(c => [`✏️ ${c.label} (${c.montant} FCFA)`]); b.push(["❌ Annuler"]);
+    session.etape = "modifier_charge_choix"; session.data = {};
+    return sendMessage(chatId, `✏️ *Modifier quelle charge ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_charge_choix") {
+    const charge = db.charges.find(c => text.includes(c.label));
+    if (!charge) return sendMessage(chatId, `⚠️ Non trouvé.`);
+    session.data.charge = charge; session.etape = "modifier_charge_champ";
+    return sendMessage(chatId, `✏️ *${charge.label}* — ${charge.montant} FCFA\nQue modifier ?`,
+      { reply_markup: { keyboard: [["📛 Libellé","💰 Montant"],["🏷️ Catégorie"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_charge_champ") {
+    const cm = {"📛 Libellé":"label","💰 Montant":"montant","🏷️ Catégorie":"categorie"};
+    if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`); }
+    session.data.champ = cm[text]; session.etape = "modifier_charge_valeur";
+    return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_charge_valeur") {
+    const charge = session.data.charge; const champ = session.data.champ;
+    const val = champ === "montant" ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
+    if (champ === "montant" && isNaN(val)) return sendMessage(chatId, `⚠️ Montant invalide.`);
+    charge[champ] = val;
+    await envoyerVersSheets("modifier_charge", { id: charge.id, label: charge.label, montant: charge.montant, categorie: charge.categorie });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Charge *${charge.label}* mise à jour !`);
+  }
+
+  // ══════════════════════════════════════════
+  // MODIFICATION VENTE
+  // ══════════════════════════════════════════
+  if (text === "✏️ Modifier vente") {
+    await chargerDepuisSheets();
+    if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
+    const dernV = db.ventes.slice(0, 10);
+    const b = dernV.map(v => {
+      let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+      return [`✏️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`];
+    });
+    b.push(["❌ Annuler"]);
+    session.etape = "modifier_vente_choix"; session.data = {};
+    return sendMessage(chatId, `✏️ *Modifier quelle vente ?*\n_(10 dernières)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_vente_choix") {
+    const label = text.replace("✏️ ", "").trim();
+    const vente = db.ventes.find(v => {
+      let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+      return `${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA` === label;
+    });
+    if (!vente) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuVentes() });
+    session.data.vente = vente; session.etape = "modifier_vente_champ";
+    return sendMessage(chatId, `✏️ *${vente.produit_nom}* | ${vente.client_nom} | ${vente.montant_total} FCFA\nQue modifier ?`,
+      { reply_markup: { keyboard: [["👤 Client","💰 Prix"],["📦 Quantité"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_vente_champ") {
+    const cm = {"👤 Client":"client_nom","💰 Prix":"montant_total","📦 Quantité":"quantite"};
+    if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() }); }
+    session.data.champ = cm[text]; session.etape = "modifier_vente_valeur";
+    return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+  if (session.etape === "modifier_vente_valeur") {
+    const vente = session.data.vente; const champ = session.data.champ;
+    const val = ['montant_total','quantite'].includes(champ) ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
+    if (['montant_total','quantite'].includes(champ) && isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
+    vente[champ] = val;
+    await envoyerVersSheets("modifier_vente", { id: vente.id, client: vente.client_nom, montant_total: vente.montant_total, quantite: vente.quantite });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Vente mise à jour !`, { reply_markup: menuVentes() });
+  }
+
 
   // ══ IA ══
   if (text === "🤖 IA") return sendMessage(chatId, `🤖 *Assistant IA*`, { reply_markup: menuIA() });
