@@ -997,7 +997,7 @@ function menuPrincipal() {
 }
 function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["🗑️ Supprimer événement", "🏠 Menu"]], resize_keyboard: true }; }
 function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], ["🏆 Top clients"], ["🔄 Clients récurrents", "😴 Clients inactifs"], ["📧 Renvoyer carte fidélité"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuIA() { return { keyboard: [["📊 Analyse rentabilité"], ["🚨 Produits à restock"], ["💡 Conseils CA"], ["❓ Question libre"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -1753,6 +1753,65 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     await envoyerVersSheets("supprimer_charge", { id: charge.id, label: charge.label });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ Charge *${charge.label}* supprimée.`, { reply_markup: menuPrincipal() });
+  }
+
+
+  // ══ SUPPRESSION VENTE ══
+  if (text === "🗑️ Supprimer vente") {
+    await chargerDepuisSheets();
+    if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
+    // Afficher les 10 dernières ventes
+    const dernieres = db.ventes.slice(0, 10);
+    const b = dernieres.map(v => {
+      let d = "";
+      try { d = new Date(v.date).toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo', day:'2-digit', month:'2-digit'}); } catch(e) {}
+      return [`🗑️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`];
+    });
+    b.push(["❌ Annuler"]);
+    session.etape = "supprimer_vente_choix"; session.data = {};
+    return sendMessage(chatId, `🗑️ *Supprimer quelle vente ?*\n_(10 dernières)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_vente_choix") {
+    // Retrouver la vente par correspondance du texte
+    const texteVente = text.replace("🗑️ ", "").trim();
+    const vente = db.ventes.find(v => {
+      let d = "";
+      try { d = new Date(v.date).toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo', day:'2-digit', month:'2-digit'}); } catch(e) {}
+      const label = `${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`;
+      return label === texteVente;
+    });
+    if (!vente) return sendMessage(chatId, `⚠️ Vente non trouvée.`, { reply_markup: menuVentes() });
+    session.data.vente = vente;
+    session.etape = "supprimer_vente_confirm";
+    let d = "";
+    try { d = new Date(vente.date).toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo'}); } catch(e) {}
+    return sendMessage(chatId,
+      `⚠️ Confirmer la suppression ?\n\n🛒 *${vente.produit_nom}${vente.produit_couleur?' — '+vente.produit_couleur:''}*\n👤 ${vente.client_nom}\n💰 ${vente.montant_total} FCFA\n📅 ${d}`,
+      { reply_markup: { keyboard: [["✅ Confirmer"], ["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "supprimer_vente_confirm") {
+    if (text !== "✅ Confirmer") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() }); }
+    const vente = session.data.vente;
+    // Remettre le stock
+    const produit = db.produits.find(p => p.nom === vente.produit_nom && (!vente.produit_couleur || p.couleur === vente.produit_couleur));
+    if (produit) {
+      produit.stock += vente.quantite;
+      await envoyerVersSheets("mouvement_stock", { produit: produit.nom, couleur: produit.couleur || "", operation: "add", quantite: vente.quantite, stock_avant: produit.stock - vente.quantite, stock_apres: produit.stock, note: "Annulation vente", date: new Date().toLocaleString("fr-FR", {timeZone:"Africa/Porto-Novo"}) });
+    }
+    // Supprimer la vente
+    db.ventes = db.ventes.filter(v => v.id !== vente.id);
+    await envoyerVersSheets("supprimer_vente", { id: vente.id });
+    // Mettre à jour nb_achats du client
+    const client = db.clients.find(c => c.nom === vente.client_nom);
+    if (client && client.nb_achats > 0) {
+      client.nb_achats -= 1;
+      client.ca_total = Math.max(0, client.ca_total - vente.montant_total);
+    }
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Vente supprimée${produit ? ' et stock restauré' : ''}.`, { reply_markup: menuVentes() });
   }
 
   // ══ IA ══
