@@ -1299,7 +1299,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     if (db.charges.length === 0) { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 Aucune charge.\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
     const total = db.charges.reduce((s, c) => s + c.montant, 0); let m = `📊 *CHARGES (${total} FCFA)*\n\n`;
     db.charges.forEach(c => m += `• *${c.label}* — ${c.montant} FCFA (${c.categorie})\n`);
-    return sendMessage(chatId, m, { reply_markup: { keyboard: [["➕ Ajouter charge"], ["🗑️ Supprimer charge"], ["🏠 Menu"]], resize_keyboard: true } });
+    return sendMessage(chatId, m, { reply_markup: { keyboard: [["➕ Ajouter charge"], ["✏️ Modifier charge", "🗑️ Supprimer charge"], ["🏠 Menu"]], resize_keyboard: true } });
   }
 
   if (text === "➕ Ajouter charge") { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 *Nouvelle charge*\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
