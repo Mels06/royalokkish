@@ -360,7 +360,7 @@ async function creerEventGoogleCalendar(titre, dateISO) {
       summary: titre,
       start: { dateTime: dateDebut.toISOString(), timeZone: "Africa/Porto-Novo" },
       end: { dateTime: dateFin.toISOString(), timeZone: "Africa/Porto-Novo" },
-      reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 24 * 60 }, { method: "popup", minutes: 60 }, { method: "popup", minutes: 30 }, { method: "email", minutes: 24 * 60 }] },
+      reminders: { useDefault: false, overrides: [{ method: "popup", minutes: 60 }, { method: "popup", minutes: 30 }] },
     };
     const response = await calendar.events.insert({ calendarId: CALENDAR_ID, resource: event });
     console.log("✅ Événement Google Calendar créé : " + response.data.id);
@@ -824,8 +824,14 @@ async function finaliserVente(chatId, session, clientNom) {
   // Calculer le prix avec réduction manuelle si applicable
   let prixOverride = null;
   if (session.data.reduction_manuelle && session.data.reduction_manuelle > 0) {
-    const prixBase = session.data.produit.prix_vente;
-    prixOverride = Math.round(prixBase * (1 - session.data.reduction_manuelle / 100));
+    const prixBase = session.data.produit.prix_vente * session.data.quantite;
+    if (session.data.reduction_montant_exact) {
+      // Montant exact saisi → prix unitaire ajusté
+      const totalReduit = prixBase - session.data.reduction_montant_exact;
+      prixOverride = Math.round(totalReduit / session.data.quantite);
+    } else {
+      prixOverride = Math.round(session.data.produit.prix_vente * (1 - session.data.reduction_manuelle / 100));
+    }
   }
   const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom, prixOverride);
   if (result.erreur) {
@@ -981,8 +987,8 @@ async function sendMessage(chatId, text, options = {}) {
 function menuPrincipal() {
   return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🤖 IA"]], resize_keyboard: true };
 }
-function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["🗑️ Supprimer événement", "🏠 Menu"]], resize_keyboard: true }; }
 function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], ["🏆 Top clients"], ["🔄 Clients récurrents", "😴 Clients inactifs"], ["📧 Renvoyer carte fidélité"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -1181,8 +1187,87 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "📋 Voir ventes") {
     await chargerDepuisSheets();
     if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
-    const s = getStats(); let m = `💰 *VENTES (${db.ventes.length})*\nCA: *${s.ca} FCFA*\n\n`;
-    db.ventes.slice(0, 8).forEach(v => { m += `🛒 *${v.produit_nom}* x${v.quantite} — ${v.montant_total} FCFA${v.reduction_appliquee ? " 🎁-15%" : ""}\n   👤 ${v.client_nom} | Marge: ${v.marge_totale} FCFA\n`; });
+    session.etape = "voir_ventes_periode";
+    return sendMessage(chatId, `📋 *Voir les ventes*\n\nChoisissez la période :`, { reply_markup: { keyboard: [
+      ["📅 Aujourd'hui", "📅 Cette semaine"],
+      ["📅 Ce mois", "📅 Ce trimestre"],
+      ["📅 Cette année", "📅 Tout voir"],
+      ["❌ Annuler"]
+    ], resize_keyboard: true } });
+  }
+
+  if (session.etape === "voir_ventes_periode") {
+    await chargerDepuisSheets();
+    session.etape = null;
+    const now = new Date();
+    let debut = null, labelPeriode = "";
+
+    if (text === "📅 Aujourd'hui") {
+      debut = new Date(now.toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo'}).split('/').reverse().join('-') + 'T00:00:00+01:00');
+      labelPeriode = "Aujourd'hui";
+    } else if (text === "📅 Cette semaine") {
+      debut = new Date(now);
+      const j = debut.getDay() || 7;
+      debut.setDate(debut.getDate() - (j-1));
+      debut.setHours(0,0,0,0);
+      labelPeriode = "Cette semaine";
+    } else if (text === "📅 Ce mois") {
+      debut = new Date(now.getFullYear(), now.getMonth(), 1);
+      labelPeriode = "Ce mois";
+    } else if (text === "📅 Ce trimestre") {
+      const trim = Math.floor(now.getMonth() / 3);
+      debut = new Date(now.getFullYear(), trim * 3, 1);
+      labelPeriode = "Ce trimestre";
+    } else if (text === "📅 Cette année") {
+      debut = new Date(now.getFullYear(), 0, 1);
+      labelPeriode = "Cette année";
+    } else if (text === "📅 Tout voir") {
+      debut = null;
+      labelPeriode = "Toutes les ventes";
+    } else {
+      return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() });
+    }
+
+    const ventesFiltrees = debut
+      ? db.ventes.filter(v => new Date(v.date) >= debut)
+      : db.ventes;
+
+    if (ventesFiltrees.length === 0) {
+      return sendMessage(chatId, `💰 Aucune vente pour *${labelPeriode}*.`, { reply_markup: menuVentes() });
+    }
+
+    const ca = ventesFiltrees.reduce((s,v) => s + (v.montant_total||0), 0);
+    const marge = ventesFiltrees.reduce((s,v) => s + (v.marge_totale||0), 0);
+
+    let m = `💰 *VENTES — ${labelPeriode}*\n`;
+    m += `📊 CA: *${ca} FCFA* | Marge: *${marge} FCFA* | ${ventesFiltrees.length} vente(s)\n\n`;
+
+    // Grouper par jour
+    const parJour = {};
+    ventesFiltrees.forEach(v => {
+      try {
+        const d = new Date(v.date);
+        const jourKey = d.toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo', day:'2-digit', month:'2-digit', year:'2-digit'});
+        if (!parJour[jourKey]) parJour[jourKey] = [];
+        parJour[jourKey].push(v);
+      } catch(e) {
+        if (!parJour['?']) parJour['?'] = [];
+        parJour['?'].push(v);
+      }
+    });
+
+    // Afficher par jour (du plus récent au plus ancien)
+    Object.keys(parJour).reverse().forEach(jour => {
+      m += `📅 *${jour}*\n`;
+      parJour[jour].forEach(v => {
+        const couleur = v.produit_couleur ? ' — '+v.produit_couleur : '';
+        m += `🛒 *${v.produit_nom}${couleur}* x${v.quantite} | 👤 ${v.client_nom} | 💰 ${v.montant_total} FCFA | Marge: ${v.marge_totale} FCFA`;
+        if (v.reduction_appliquee) m += ` 🎁`;
+        m += `\n`;
+      });
+      m += `\n`;
+    });
+
     return sendMessage(chatId, m, { reply_markup: menuVentes() });
   }
 
@@ -1206,7 +1291,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     if (db.charges.length === 0) { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 Aucune charge.\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
     const total = db.charges.reduce((s, c) => s + c.montant, 0); let m = `📊 *CHARGES (${total} FCFA)*\n\n`;
     db.charges.forEach(c => m += `• *${c.label}* — ${c.montant} FCFA (${c.categorie})\n`);
-    return sendMessage(chatId, m, { reply_markup: { keyboard: [["➕ Ajouter charge"], ["🏠 Menu"]], resize_keyboard: true } });
+    return sendMessage(chatId, m, { reply_markup: { keyboard: [["➕ Ajouter charge"], ["🗑️ Supprimer charge"], ["🏠 Menu"]], resize_keyboard: true } });
   }
 
   if (text === "➕ Ajouter charge") { session.etape = "charge_label"; session.data = {}; return sendMessage(chatId, `📊 *Nouvelle charge*\n\nLibellé :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }); }
@@ -1541,6 +1626,125 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     session.etape = "renvoyer_carte";
     const b = avecEmail.map(c => [`${c.nom} — ${c.email}`]); b.push(["❌ Annuler"]);
     return sendMessage(chatId, `📧 Choisissez le client :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+
+  // ══ SUPPRESSION PRODUIT ══
+  if (text === "🗑️ Supprimer produit") {
+    await chargerDepuisSheets();
+    if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
+    // Grouper par modèle
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const b = nomsUniques.map(nom => [`🗑️ ${nom}`]); b.push(["❌ Annuler"]);
+    session.etape = "supprimer_produit_modele"; session.data = {};
+    return sendMessage(chatId, `🗑️ *Supprimer quel modèle ?*\n⚠️ Toutes les couleurs seront supprimées.`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_produit_modele") {
+    const nomModele = text.replace("🗑️ ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nomModele);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuProduits() });
+    session.data.nomModele = nomModele;
+    session.data.variantes = variantes;
+    if (variantes.length === 1 && !variantes[0].couleur) {
+      session.etape = "supprimer_produit_confirm";
+      return sendMessage(chatId, `⚠️ Confirmer la suppression de *${nomModele}* ?`, { reply_markup: { keyboard: [["✅ Confirmer"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Plusieurs couleurs → choisir laquelle ou toutes
+    const b = variantes.map(v => [`🗑️ ${v.couleur}`]);
+    b.push(["🗑️ TOUTES LES COULEURS"], ["❌ Annuler"]);
+    session.etape = "supprimer_produit_couleur";
+    return sendMessage(chatId, `🗑️ Quelle couleur supprimer ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_produit_couleur") {
+    const nomModele = session.data.nomModele;
+    if (text === "🗑️ TOUTES LES COULEURS") {
+      session.data.supprimerTout = true;
+    } else {
+      const couleur = text.replace("🗑️ ", "").trim();
+      session.data.couleurASupprimer = couleur;
+    }
+    session.etape = "supprimer_produit_confirm";
+    const label = session.data.supprimerTout ? `toutes les couleurs de *${nomModele}*` : `*${nomModele} — ${session.data.couleurASupprimer}*`;
+    return sendMessage(chatId, `⚠️ Confirmer la suppression de ${label} ?`, { reply_markup: { keyboard: [["✅ Confirmer"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_produit_confirm") {
+    if (text !== "✅ Confirmer") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuProduits() }); }
+    const nomModele = session.data.nomModele;
+    let supprimés = 0;
+    if (session.data.supprimerTout) {
+      const avant = db.produits.length;
+      db.produits = db.produits.filter(p => p.nom !== nomModele);
+      supprimés = avant - db.produits.length;
+    } else if (session.data.couleurASupprimer) {
+      const avant = db.produits.length;
+      db.produits = db.produits.filter(p => !(p.nom === nomModele && p.couleur === session.data.couleurASupprimer));
+      supprimés = avant - db.produits.length;
+    } else {
+      db.produits = db.produits.filter(p => p.nom !== nomModele);
+      supprimés = 1;
+    }
+    // Supprimer dans Sheets via GAS
+    await envoyerVersSheets("supprimer_produit", { nom: nomModele, couleur: session.data.couleurASupprimer || "", tout: session.data.supprimerTout || false });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *${supprimés} produit(s) supprimé(s)* !`, { reply_markup: menuProduits() });
+  }
+
+  // ══ SUPPRESSION CLIENT ══
+  if (text === "🗑️ Supprimer client") {
+    await chargerDepuisSheets();
+    const vraisClients = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
+    if (vraisClients.length === 0) return sendMessage(chatId, `👥 Aucun client.`, { reply_markup: menuClients() });
+    const b = vraisClients.map(c => [`🗑️ ${c.nom}`]); b.push(["❌ Annuler"]);
+    session.etape = "supprimer_client_choix"; session.data = {};
+    return sendMessage(chatId, `🗑️ *Supprimer quel client ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_client_choix") {
+    const nomClient = text.replace("🗑️ ", "").trim();
+    const client = db.clients.find(c => c.nom === nomClient);
+    if (!client) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuClients() });
+    session.data.client = client;
+    session.etape = "supprimer_client_confirm";
+    return sendMessage(chatId, `⚠️ Confirmer la suppression de *${nomClient}* ?\n_(${client.nb_achats} achat(s) — historique conservé)_`, { reply_markup: { keyboard: [["✅ Confirmer"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_client_confirm") {
+    if (text !== "✅ Confirmer") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuClients() }); }
+    const client = session.data.client;
+    db.clients = db.clients.filter(c => c.id !== client.id);
+    await envoyerVersSheets("supprimer_client", { id: client.id, nom: client.nom });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *${client.nom}* supprimé.`, { reply_markup: menuClients() });
+  }
+
+  // ══ SUPPRESSION CHARGE ══
+  if (text === "🗑️ Supprimer charge") {
+    await chargerDepuisSheets();
+    if (db.charges.length === 0) return sendMessage(chatId, `📊 Aucune charge.`);
+    const b = db.charges.map(c => [`🗑️ ${c.label} (${c.montant} FCFA)`]); b.push(["❌ Annuler"]);
+    session.etape = "supprimer_charge_choix"; session.data = {};
+    return sendMessage(chatId, `🗑️ *Supprimer quelle charge ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_charge_choix") {
+    const texteCharge = text.replace("🗑️ ", "").trim();
+    const charge = db.charges.find(c => texteCharge.startsWith(c.label));
+    if (!charge) return sendMessage(chatId, `⚠️ Non trouvé.`);
+    session.data.charge = charge;
+    session.etape = "supprimer_charge_confirm";
+    return sendMessage(chatId, `⚠️ Confirmer la suppression de *${charge.label}* (${charge.montant} FCFA) ?`, { reply_markup: { keyboard: [["✅ Confirmer"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "supprimer_charge_confirm") {
+    if (text !== "✅ Confirmer") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`); }
+    const charge = session.data.charge;
+    db.charges = db.charges.filter(c => c.id !== charge.id);
+    await envoyerVersSheets("supprimer_charge", { id: charge.id, label: charge.label });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Charge *${charge.label}* supprimée.`, { reply_markup: menuPrincipal() });
   }
 
   // ══ IA ══
@@ -2088,7 +2292,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     session.etape = "vente_reduction_manuelle";
     return sendMessage(chatId,
       `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
-      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Autre %"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
     );
   }
 
@@ -2096,9 +2300,9 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     let reductionManuelle = 0;
     if (text === "❌ Pas de réduction") {
       reductionManuelle = 0;
-    } else if (text === "✏️ Autre %") {
+    } else if (text === "✏️ Montant exact") {
       session.etape = "vente_reduction_saisie";
-      return sendMessage(chatId, `✏️ Entrez le pourcentage (ex: 25) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+      return sendMessage(chatId, `✏️ Entrez le montant à déduire en FCFA :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
     } else {
       const pct = parseFloat(text.replace('%',''));
       if (isNaN(pct) || pct < 0 || pct > 100) return sendMessage(chatId, `⚠️ Pourcentage invalide.`);
@@ -2117,9 +2321,15 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_reduction_saisie") {
-    const pct = parseFloat(text.replace('%',''));
-    if (isNaN(pct) || pct < 0 || pct > 100) return sendMessage(chatId, `⚠️ Entre 0 et 100.`);
+    const montantReduc = parseFloat(text.replace(/[^0-9.]/g, ''));
+    const prixTotal = session.data.produit.prix_vente * session.data.quantite;
+    if (isNaN(montantReduc) || montantReduc < 0 || montantReduc >= prixTotal) {
+      return sendMessage(chatId, `⚠️ Montant invalide. Max: ${prixTotal - 1} FCFA`);
+    }
+    // Convertir le montant en pourcentage pour le système
+    const pct = (montantReduc / prixTotal) * 100;
     session.data.reduction_manuelle = pct;
+    session.data.reduction_montant_exact = montantReduc; // garder le montant exact
     session.etape = "vente_client";
     // Afficher le nouveau prix
     const p = session.data.produit;
@@ -2127,7 +2337,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const prixReduit = Math.round(prixBase * (1 - pct/100));
     return sendMessage(chatId,
       `✅ Réduction *${pct}%* appliquée\n💰 ${prixBase} → *${prixReduit} FCFA*\n\n👤 Client ?`,
-      { reply_markup: { keyboard: [...db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase())).map(c => [c.nb_achats >= 2 ? `⭐ \${c.nom}` : c.nom]), ["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]], resize_keyboard: true } }
+      { reply_markup: { keyboard: [...db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase())).map(c => [c.nb_achats >= 2 ? `⭐ ${c.nom}` : c.nom]), ["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]], resize_keyboard: true } }
     );
   }
 
