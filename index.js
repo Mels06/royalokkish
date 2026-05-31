@@ -212,14 +212,21 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
     let articlesHtml = '';
     ventes.forEach((r, i) => {
       const v = r.vente;
+      const photoUrl = v.produit_photo_url && v.produit_photo_url.startsWith('http') ? v.produit_photo_url : null;
       articlesHtml += `
         <tr>
-          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;">
-            ${v.produit_nom}${v.produit_couleur ? ' — ' + v.produit_couleur : ''}
+          <td style="padding:10px 0;border-bottom:1px solid #1e1e1e;vertical-align:middle;">
+            <table cellpadding="0" cellspacing="0"><tr>
+              ${photoUrl ? `<td style="padding-right:10px;vertical-align:middle;"><img src="${photoUrl}" width="60" height="60" style="object-fit:contain;border-radius:6px;border:1px solid #C9A84C;background:#0a0a0a;display:block;"></td>` : ''}
+              <td style="vertical-align:middle;">
+                <div style="font-size:13px;color:#aaa;">${v.produit_nom}${v.produit_couleur ? ' — ' + v.produit_couleur : ''}</div>
+                ${r.reductionAppliquee ? '<div style="color:#C9A84C;font-size:10px;">🎁 Réduction appliquée</div>' : ''}
+              </td>
+            </tr></table>
           </td>
-          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;text-align:center;">x${v.quantite}</td>
-          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#C9A84C;text-align:right;font-weight:bold;">
-            ${v.montant_total} FCFA${r.reductionAppliquee ? ' 🎁' : ''}
+          <td style="padding:10px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;text-align:center;vertical-align:middle;">x${v.quantite}</td>
+          <td style="padding:10px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#C9A84C;text-align:right;font-weight:bold;vertical-align:middle;">
+            ${v.montant_total} FCFA
           </td>
         </tr>`;
     });
@@ -826,7 +833,7 @@ function offrirEtui(qte, clientNom) {
   return { nom: etui.nom, stock_restant: etui.stock, alerte: etui.stock <= 5 };
 }
 
-async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null) {
+async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null, skipEmail = false) {
   // Chercher par "Nom Couleur" exact d'abord, puis par nom seul
   let produit = db.produits.find(p => {
     const nomAvecCouleur = p.couleur ? (p.nom + " " + p.couleur).toLowerCase() : p.nom.toLowerCase();
@@ -904,8 +911,8 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     client.ca_total += montant_total;
     client.derniere_visite = new Date().toISOString();
 
-    // Envoyer email notification réduction
-    if (reductionAppliquee && client.email) {
+    // Envoyer email notification réduction (sauf si panier multi-articles)
+    if (!skipEmail && reductionAppliquee && client.email) {
       const tauxReel = Math.round(getTauxReduction(client.nb_achats - 1) * 100);
       await envoyerEmailReduction(client, vente, montantAvant, montantReduction, tauxReel);
     }
@@ -943,7 +950,7 @@ async function finaliserVente(chatId, session, clientNom) {
     const ventesEnregistrees = [];
 
     for (const item of panier) {
-      const result = await enregistrerVenteComplete(item.produit.nom, item.quantite, clientNom, item.prix_unitaire);
+      const result = await enregistrerVenteComplete(item.produit.nom, item.quantite, clientNom, item.prix_unitaire, true); // skipEmail=true pour panier
       if (!result.erreur) {
         totalGlobal += item.total;
         repGlobal += `🛒 *${item.produit.nom}${item.produit.couleur?' — '+item.produit.couleur:''}* x${item.quantite} = ${item.total} FCFA${item.reduction?' 🎁-'+item.reduction+'%':''}\n`;
