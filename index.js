@@ -925,6 +925,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     client: vente.client_nom, produit: produit.nom, quantite: qte,
     prix_vente: prixVente, montant_total, marge_totale,
     reduction: reductionAppliquee || 0,
+    type_vente: vente.is_revendeur ? "Revendeur" : "Normal",
     date: new Date().toLocaleString("fr-FR"),
   });
 
