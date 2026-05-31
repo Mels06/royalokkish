@@ -1411,6 +1411,57 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     return sendMessage(chatId, m, { reply_markup: menuVentes() });
   }
 
+
+  // ══ VENTE REVENDEUR ══
+
+  if (session.etape === "vente_rev_modele") {
+    const nom = text.replace("🤝 ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nom && p.stock > 0 && p.prix_revendeur);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Non trouvé ou pas de prix revendeur.`, { reply_markup: menuVentes() });
+    if (variantes.length === 1 && !variantes[0].couleur) {
+      session.data.produit = variantes[0];
+      session.etape = "vente_rev_quantite";
+      return sendMessage(chatId, `📦 *${variantes[0].nom}*\n🤝 Prix revendeur: *${variantes[0].prix_revendeur} FCFA*\n🗃️ Stock: ${variantes[0].stock}\n\n🔢 Quantité ?`, { reply_markup: { keyboard: [["1"],["2"],["3"],["5"],["10"],["❌ Annuler"]], resize_keyboard: true } });
+    }
+    session.data.nomModele = nom; session.etape = "vente_rev_couleur";
+    const b = variantes.map(v => [`🎨 ${v.couleur} (${v.stock} dispo)`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `🎨 Couleur de *${nom}* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "vente_rev_couleur") {
+    const couleur = text.replace("🎨 ", "").replace(/ \(\d+ dispo\)$/, '').trim();
+    const p = db.produits.find(p => p.nom === session.data.nomModele && p.couleur === couleur && p.prix_revendeur);
+    if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuVentes() });
+    session.data.produit = p; session.etape = "vente_rev_quantite";
+    return sendMessage(chatId, `📦 *${p.nom} — ${p.couleur}*\n🤝 Prix revendeur: *${p.prix_revendeur} FCFA*\n🗃️ Stock: ${p.stock}\n\n🔢 Quantité ?`, { reply_markup: { keyboard: [["1"],["2"],["3"],["5"],["10"],["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "vente_rev_quantite") {
+    const qte = parseInt(text);
+    if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
+    if (qte > session.data.produit.stock) return sendMessage(chatId, `⚠️ Max: ${session.data.produit.stock}`);
+    const p = session.data.produit;
+    // Ajouter au panier revendeur
+    session.data.panier.push({
+      produit: p, quantite: qte,
+      prix_unitaire: p.prix_revendeur,
+      reduction: 0, total: p.prix_revendeur * qte, type: "revendeur"
+    });
+    session.data.produit = null;
+    const panierTotal = session.data.panier.reduce((s,a) => s+a.total, 0);
+    let recap = `🤝 *Panier Revendeur (${session.data.panier.length} article(s))*\n`;
+    session.data.panier.forEach((a,i) => {
+      recap += `${i+1}. ${a.produit.nom}${a.produit.couleur?' — '+a.produit.couleur:''} x${a.quantite} = ${a.total} FCFA\n`;
+    });
+    recap += `\n💰 *Total: ${panierTotal} FCFA*`;
+    const peutAjouter = session.data.panier.length < 10;
+    const bPanier = [];
+    if (peutAjouter) bPanier.push(["➕ Ajouter un article"]);
+    bPanier.push(["✅ Finaliser la vente"], ["❌ Annuler"]);
+    session.etape = "vente_panier";
+    return sendMessage(chatId, recap, { reply_markup: { keyboard: bPanier, resize_keyboard: true } });
+  }
+
   if (text === "➕ Vente rapide") {
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Ajoutez d'abord un produit !`, { reply_markup: menuVentes() });
     session.etape = "vente_modele"; session.data = { panier: [] };
@@ -1568,6 +1619,20 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
 
   // ── EMAIL CLIENT APRÈS VENTE ──
+
+  if (session.etape === "vente_client_doublon") {
+    if (text === "✅ Continuer avec ce client") {
+      const client = session.data.client_existant;
+      session.data.client_existant = null;
+      session.etape = null;
+      await finaliserVente(chatId, session, client.nom);
+      return;
+    }
+    // Annuler → retour au menu
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `❌ Création annulée.`, { reply_markup: menuVentes() });
+  }
+
   if (session.etape === "vente_client_email_apres") {
     const result = session.data.result;
     session.etape = null; session.data = {};
@@ -2634,8 +2699,34 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
 
   // ── CLIENT (avec envoi carte fidélité) ──
   if (session.etape === "client_nom") { session.data.nom = text; session.etape = "client_email"; return sendMessage(chatId, `📧 Email (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } }); }
-  if (session.etape === "client_email") { session.data.email = text === "skip" ? "" : text; session.etape = "client_tel"; return sendMessage(chatId, `📱 Téléphone (ou "skip") :`); }
-  if (session.etape === "client_tel") { session.data.telephone = text === "skip" ? "" : text; session.etape = "client_note"; return sendMessage(chatId, `📝 Note (ou "skip") :`); }
+  if (session.etape === "client_email") {
+    const emailSaisi = text === "skip" ? "" : text.trim().toLowerCase();
+    // Vérifier doublon email
+    if (emailSaisi && emailSaisi.includes("@")) {
+      const existeE = db.clients.find(c => c.email && c.email.toLowerCase() === emailSaisi);
+      if (existeE) {
+        session.etape = null; session.data = {};
+        return sendMessage(chatId, `⚠️ *Email déjà enregistré !*\n👤 *${existeE.nom}* utilise déjà cet email.\n\nCréation annulée.`, { reply_markup: menuClients() });
+      }
+    }
+    session.data.email = emailSaisi;
+    session.etape = "client_tel";
+    return sendMessage(chatId, `📱 Téléphone (ou "skip") :`);
+  }
+  if (session.etape === "client_tel") {
+    const telSaisi = text === "skip" ? "" : text.trim().replace(/\s/g,"");
+    // Vérifier doublon téléphone
+    if (telSaisi && telSaisi.length >= 8) {
+      const existeT = db.clients.find(c => c.telephone && String(c.telephone).replace(/\s/g,"") === telSaisi);
+      if (existeT) {
+        session.etape = null; session.data = {};
+        return sendMessage(chatId, `⚠️ *Numéro déjà enregistré !*\n👤 *${existeT.nom}* utilise déjà ce numéro.\n\nCréation annulée.`, { reply_markup: menuClients() });
+      }
+    }
+    session.data.telephone = telSaisi;
+    session.etape = "client_note";
+    return sendMessage(chatId, `📝 Note (ou "skip") :`);
+  }
   if (session.etape === "client_note") {
     const client = {
       id: genId(), nom: session.data.nom, email: session.data.email,
@@ -2799,7 +2890,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
     );
     const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-    b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+    b.push(["➕ Nouveau client"], ["🤝 Revendeur"], ["Anonyme"], ["❌ Annuler"]);
     return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_reduction_saisie") {
@@ -2842,7 +2933,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
         !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
       );
       const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-      b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+      b.push(["➕ Nouveau client"], ["🤝 Revendeur"], ["Anonyme"], ["❌ Annuler"]);
       const panierTotal = session.data.panier.reduce((s, a) => s + a.total, 0);
       return sendMessage(chatId, `💰 Total: *${panierTotal} FCFA*\n\n👤 Client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
     }
@@ -2853,6 +2944,27 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
 
   if (session.etape === "vente_client") {
     const clientNom = text.replace("⭐ ", "").trim();
+
+    // Revendeur → appliquer prix revendeur sur tous les articles du panier
+    if (clientNom === "🤝 Revendeur") {
+      if (session.data.panier && session.data.panier.length > 0) {
+        // Recalculer le panier avec les prix revendeur
+        let ok = true;
+        session.data.panier = session.data.panier.map(item => {
+          const p = item.produit;
+          if (!p.prix_revendeur) { ok = false; return item; }
+          return { ...item, prix_unitaire: p.prix_revendeur, total: p.prix_revendeur * item.quantite, type: "revendeur" };
+        });
+        if (!ok) return sendMessage(chatId, `⚠️ Certains produits n'ont pas de prix revendeur.`);
+      } else if (session.data.produit) {
+        // Article unique
+        if (!session.data.produit.prix_revendeur) return sendMessage(chatId, `⚠️ Ce produit n'a pas de prix revendeur défini.`);
+        session.data.prixOverride = session.data.produit.prix_revendeur;
+      }
+      // Continuer avec Anonyme comme client revendeur
+      await finaliserVente(chatId, session, "Revendeur");
+      return;
+    }
 
     // Nouveau client → collecter les infos
     if (clientNom === "➕ Nouveau client") {
@@ -2895,10 +3007,20 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     return sendMessage(chatId, `📱 Numéro de téléphone du client :\n_(obligatoire pour la carte fidélité)_`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_nouveau_client_tel") {
-    // Valider le numéro (au moins 8 chiffres)
     const telClean = text.trim().replace(/\s/g, "");
     if (telClean.length < 8) {
       return sendMessage(chatId, `⚠️ Numéro invalide. Entrez un numéro valide (ex: +22997000000) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Vérifier si ce téléphone existe déjà
+    const existeTel = db.clients.find(c => c.telephone && String(c.telephone).replace(/\s/g,"") === telClean);
+    if (existeTel) {
+      session.data.client_existant = existeTel;
+      session.data.nouveau_client.telephone = telClean;
+      session.etape = "vente_client_doublon";
+      return sendMessage(chatId,
+        `⚠️ *Ce numéro est déjà enregistré !*\n👤 Client existant : *${existeTel.nom}*\n📧 ${existeTel.email||'-'} | 📱 ${existeTel.telephone}\n\nContinuer avec ce client ou annuler ?`,
+        { reply_markup: { keyboard: [["✅ Continuer avec ce client"], ["❌ Annuler"]], resize_keyboard: true } }
+      );
     }
     session.data.nouveau_client.telephone = telClean;
     session.etape = "vente_nouveau_client_email";
@@ -2909,6 +3031,16 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const emailClean = text.trim().toLowerCase();
     if (!emailClean.includes("@") || !emailClean.includes(".")) {
       return sendMessage(chatId, `⚠️ Email invalide. Entrez un email valide (ex: client@gmail.com) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Vérifier si cet email existe déjà
+    const existeEmail = db.clients.find(c => c.email && c.email.toLowerCase() === emailClean);
+    if (existeEmail) {
+      session.data.client_existant = existeEmail;
+      session.etape = "vente_client_doublon";
+      return sendMessage(chatId,
+        `⚠️ *Cet email est déjà enregistré !*\n👤 Client existant : *${existeEmail.nom}*\n📧 ${existeEmail.email} | 📱 ${existeEmail.telephone||'-'}\n\nContinuer avec ce client ou annuler ?`,
+        { reply_markup: { keyboard: [["✅ Continuer avec ce client"], ["❌ Annuler"]], resize_keyboard: true } }
+      );
     }
     session.data.nouveau_client.email = emailClean;
 
