@@ -829,14 +829,39 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
 // FINALISER UNE VENTE (partagé entre vente_client et nouveau_client)
 // ─────────────────────────────────────────
 async function finaliserVente(chatId, session, clientNom) {
-  // Calculer le prix avec réduction manuelle si applicable
-  let prixOverride = null;
-  if (session.data.reduction_manuelle && session.data.reduction_manuelle > 0) {
+  const panier = session.data.panier && session.data.panier.length > 0 ? session.data.panier : null;
+
+  // ── PANIER MULTI-ARTICLES ──
+  if (panier && panier.length > 1) {
+    session.etape = null; session.data = {};
+    let repGlobal = `✅ *Vente enregistrée !*\n👤 ${clientNom}\n\n`;
+    let totalGlobal = 0; let firstResult = null;
+    for (const item of panier) {
+      const result = await enregistrerVenteComplete(item.produit.nom, item.quantite, clientNom, item.prix_unitaire);
+      if (!result.erreur) {
+        totalGlobal += item.total;
+        repGlobal += `🛒 *${item.produit.nom}${item.produit.couleur?' — '+item.produit.couleur:''}* x${item.quantite} = ${item.total} FCFA${item.reduction?' 🎁-'+item.reduction+'%':''}\n`;
+        if (!firstResult) firstResult = result;
+      } else { repGlobal += `❌ ${result.erreur}\n`; }
+    }
+    repGlobal += `\n💰 *Total: ${totalGlobal} FCFA*`;
+    await sendMessage(chatId, repGlobal, { reply_markup: menuVentes() });
+    if (firstResult) await envoyerEmailsApresVente(firstResult);
+    return;
+  }
+
+  // ── ARTICLE UNIQUE ──
+  if (panier && panier.length === 1) {
+    session.data.produit = panier[0].produit;
+    session.data.quantite = panier[0].quantite;
+    session.data.prixOverride = panier[0].prix_unitaire;
+  }
+
+  let prixOverride = session.data.prixOverride || null;
+  if (!prixOverride && session.data.reduction_manuelle && session.data.reduction_manuelle > 0) {
     const prixBase = session.data.produit.prix_vente * session.data.quantite;
     if (session.data.reduction_montant_exact) {
-      // Montant exact saisi → prix unitaire ajusté
-      const totalReduit = prixBase - session.data.reduction_montant_exact;
-      prixOverride = Math.round(totalReduit / session.data.quantite);
+      prixOverride = Math.round((prixBase - session.data.reduction_montant_exact) / session.data.quantite);
     } else {
       prixOverride = Math.round(session.data.produit.prix_vente * (1 - session.data.reduction_manuelle / 100));
     }
@@ -852,7 +877,7 @@ async function finaliserVente(chatId, session, clientNom) {
     session.etape = "vente_client_email_apres";
     session.data = { result };
     return sendMessage(chatId,
-      `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n💰 *${result.vente.montant_total} FCFA*\n\n📧 *Email de ${result.client.nom}* pour sa carte fidélité :`,
+      `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n💰 *${result.vente.montant_total} FCFA*\n\n📧 Email de *${result.client.nom}* pour sa carte fidélité :`,
       { reply_markup: { keyboard: [["❌ Pas d'email"], ["❌ Annuler"]], resize_keyboard: true } }
     );
   }
@@ -861,6 +886,14 @@ async function finaliserVente(chatId, session, clientNom) {
 
   // Envoi email centralisé
   await envoyerEmailsApresVente(result);
+
+  // Notification stock critique (<=2)
+  if (result.produit.stock <= 2 && result.produit.stock > 0) {
+    await sendMessage(chatId, `🚨 *STOCK CRITIQUE !*\n📦 ${result.produit.nom}${result.produit.couleur?' — '+result.produit.couleur:''}\n⚠️ Il ne reste que *${result.produit.stock}* unité(s) !`);
+  } else if (result.produit.stock === 0) {
+    await sendMessage(chatId, `🔴 *RUPTURE DE STOCK !*\n📦 ${result.produit.nom}${result.produit.couleur?' — '+result.produit.couleur:''}\n❌ Plus aucune unité disponible !`);
+  }
+
   let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
   if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité ${result.labelReduction || ''} appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
   if (result.etuiOffert) {
@@ -871,35 +904,13 @@ async function finaliserVente(chatId, session, clientNom) {
       if (result.etuiOffert.alerte) rep += `\n⚠️ Stock étuis bas (${result.etuiOffert.stock_restant} restant(s))`;
     }
   }
-  if (result.alerte) rep += `\n\n⚠️ *Stock lunettes bas !*`;
-  // Notification stock critique (<=2)
-  if (result.produit.stock <= 2 && result.produit.stock > 0) {
-    await sendMessage(chatId, `🚨 *STOCK CRITIQUE !*\n📦 ${result.produit.nom}${result.produit.couleur ? ' — '+result.produit.couleur : ''}\n⚠️ Il ne reste que *${result.produit.stock}* unité(s) !`);
-  } else if (result.produit.stock === 0) {
-    await sendMessage(chatId, `🔴 *RUPTURE DE STOCK !*\n📦 ${result.produit.nom}${result.produit.couleur ? ' — '+result.produit.couleur : ''}\n❌ Plus aucune unité disponible !`);
-  }
-
+  if (result.alerte) rep += `\n\n⚠️ *Stock bas !* ${result.produit.nom}${result.produit.couleur?' — '+result.produit.couleur:''} → ${result.produit.stock} restant(s)`;
   return sendMessage(chatId, rep, { reply_markup: menuVentes() });
 }
 
-// ─────────────────────────────────────────
-// AGENDA
-// ─────────────────────────────────────────
-async function parserDateNaturelle(texte) {
-  try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: [{ role: "user", content: `Heure actuelle à Cotonou Bénin (UTC+1) : ${new Date().toLocaleString('fr-FR', { timeZone: 'Africa/Porto-Novo', year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit' })}\\nExtrait le titre et la date/heure de cet événement : "${texte}"\\nRéponds UNIQUEMENT avec ce JSON : {"titre":"nom de l'événement","date":"2026-05-27T15:00:00"}\\nRÈGLES STRICTES :\\n1. La date générée est en HEURE DE COTONOU (UTC+1) - PAS en UTC\\n2. Si utilisateur dit 15h tu mets T15:00:00 dans le JSON - jamais T14:00:00\\n3. Si seulement heure sans jour → date d'aujourd'hui au Bénin\\n4. Si impossible → "date":null` }],
-      max_tokens: 100, temperature: 0,
-    });
-    return JSON.parse(completion.choices[0].message.content.replace(/```json|```/g, "").trim());
-  } catch { return null; }
-}
-
-function formatDateFR(isoDate) {
-  const d = new Date(isoDate);
-  const tz = 'Africa/Porto-Novo';
-  const opts = { timeZone: tz, weekday:'long', day:'numeric', month:'long', hour:'2-digit', minute:'2-digit', hour12: false };
+function formatDateFR(dateISO) {
+  const d = new Date(dateISO);
+  const opts = { weekday:'long', day:'numeric', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit', hour12: false };
   // Formatter en français avec heure Bénin
   const str = d.toLocaleString('fr-FR', opts);
   // str = "mercredi 27 mai à 15:00" → capitaliser
@@ -1281,7 +1292,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (text === "➕ Vente rapide") {
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Ajoutez d'abord un produit !`, { reply_markup: menuVentes() });
-    session.etape = "vente_modele"; session.data = {};
+    session.etape = "vente_modele"; session.data = { panier: [] };
     const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))];
     const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
     return sendMessage(chatId, `🛒 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
@@ -2573,7 +2584,35 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       reductionManuelle = pct;
     }
     session.data.reduction_manuelle = reductionManuelle;
-    session.etape = "vente_client";
+    // Ajouter l'article au panier
+    const p = session.data.produit;
+    const qte = session.data.quantite;
+    const reduc = reductionManuelle || 0;
+    const prixUnit = reduc > 0 ? Math.round(p.prix_vente * (1 - reduc/100)) : p.prix_vente;
+    if (!session.data.panier) session.data.panier = [];
+    session.data.panier.push({
+      produit: p,
+      quantite: qte,
+      prix_unitaire: prixUnit,
+      reduction: reduc,
+      total: prixUnit * qte
+    });
+    session.data.produit = null;
+    session.data.quantite = null;
+    session.data.reduction_manuelle = null;
+    // Afficher le panier et proposer d'ajouter ou finaliser
+    const panierTotal = session.data.panier.reduce((s, a) => s + a.total, 0);
+    let recap = `🛒 *Panier (${session.data.panier.length} article(s))*\n`;
+    session.data.panier.forEach((a, i) => {
+      recap += `${i+1}. ${a.produit.nom}${a.produit.couleur?' — '+a.produit.couleur:''} x${a.quantite} = ${a.total} FCFA${a.reduction?' 🎁-'+a.reduction+'%':''}\n`;
+    });
+    recap += `\n💰 *Total: ${panierTotal} FCFA*`;
+    const peutAjouter = session.data.panier.length < 10 && db.produits.some(p => p.stock > 0);
+    const bPanier = [];
+    if (peutAjouter) bPanier.push(["➕ Ajouter un article"]);
+    bPanier.push(["✅ Finaliser la vente"], ["❌ Annuler"]);
+    session.etape = "vente_panier";
+    return sendMessage(chatId, recap, { reply_markup: { keyboard: bPanier, resize_keyboard: true } });
     // Filtrer les vrais clients (pas les produits mal créés)
     const nomsProduitsLower = db.produits.map(p => p.nom.toLowerCase());
     const vraisClients = db.clients.filter(c => 
@@ -2603,6 +2642,34 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       `✅ Réduction *${pct}%* appliquée\n💰 ${prixBase} → *${prixReduit} FCFA*\n\n👤 Client ?`,
       { reply_markup: { keyboard: [...db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase())).map(c => [c.nb_achats >= 2 ? `⭐ ${c.nom}` : c.nom]), ["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]], resize_keyboard: true } }
     );
+  }
+
+
+  // ── GESTION PANIER ──
+  if (session.etape === "vente_panier") {
+    if (text === "➕ Ajouter un article") {
+      // Retourner au choix modèle (exclure les produits déjà au max de stock)
+      const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))];
+      session.etape = "vente_modele";
+      const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
+      return sendMessage(chatId, `🛒 Ajouter un article :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    if (text === "✅ Finaliser la vente") {
+      // Aller au choix client
+      session.etape = "vente_client";
+      const nomsProduitsLower = db.produits.map(p => p.nom.toLowerCase());
+      const vraisClients = db.clients.filter(c =>
+        c.nom && c.nom !== "Anonyme" &&
+        !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
+      );
+      const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
+      b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+      const panierTotal = session.data.panier.reduce((s, a) => s + a.total, 0);
+      return sendMessage(chatId, `💰 Total: *${panierTotal} FCFA*\n\n👤 Client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    // Annuler
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `❌ Vente annulée.`, { reply_markup: menuVentes() });
   }
 
   if (session.etape === "vente_client") {
