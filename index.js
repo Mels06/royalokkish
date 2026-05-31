@@ -201,6 +201,109 @@ async function envoyerEmailReduction(client, vente, montantAvant, reduction, tau
 
 
 // ─────────────────────────────────────────
+// EMAIL PANIER COMPLET (multi-articles)
+// ─────────────────────────────────────────
+async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
+  if (!emailConfig || !client.email) return false;
+  try {
+    const prenom = client.nom.split(' ')[0];
+
+    // Construire le récap des articles
+    let articlesHtml = '';
+    ventes.forEach((r, i) => {
+      const v = r.vente;
+      articlesHtml += `
+        <tr>
+          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;">
+            ${v.produit_nom}${v.produit_couleur ? ' — ' + v.produit_couleur : ''}
+          </td>
+          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;text-align:center;">x${v.quantite}</td>
+          <td style="padding:8px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#C9A84C;text-align:right;font-weight:bold;">
+            ${v.montant_total} FCFA${r.reductionAppliquee ? ' 🎁' : ''}
+          </td>
+        </tr>`;
+    });
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      *{margin:0;padding:0;box-sizing:border-box;}
+      body{font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;color:#333;}
+      .w{max-width:600px;margin:0 auto;background:#fff;}
+      .h{background:#0a0a0a;padding:30px;text-align:center;}
+      .logo{width:60px;height:60px;object-fit:contain;margin-bottom:10px;}
+      .brand{color:#C9A84C;font-size:18px;font-weight:bold;letter-spacing:4px;text-transform:uppercase;}
+      .sl{color:#555;font-size:10px;letter-spacing:2px;font-style:italic;margin-top:4px;}
+      .b{background:#fff;padding:32px 40px;}
+      .sal{font-size:18px;color:#111;font-weight:bold;margin-bottom:4px;}
+      .st{color:#C9A84C;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-style:italic;margin-bottom:20px;}
+      .enc{background:#0a0a0a;border-radius:8px;padding:24px;margin:20px 0;}
+      .et{color:#C9A84C;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;text-align:center;margin-bottom:16px;}
+      .tx{font-size:14px;color:#444;line-height:1.8;margin-bottom:16px;}
+      .total-row td{padding-top:12px;font-size:15px;font-weight:bold;color:#C9A84C;}
+      .sig{border-top:1px solid #eee;padding-top:20px;margin-top:20px;font-size:13px;color:#666;line-height:2;}
+      .sig strong{color:#111;font-size:14px;}.sig em{color:#C9A84C;font-size:12px;}
+      .f{background:#0a0a0a;padding:20px;text-align:center;}
+      .fb{color:#C9A84C;font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-bottom:8px;}
+      .fc{color:#555;font-size:11px;line-height:2;}
+    </style></head>
+    <body><div class="w">
+      <div class="h">
+        <img class="logo" src="${LOGO_DRIVE_URL}" alt="RT">
+        <div class="brand">Royal Tchitchi</div>
+        <div class="sl">Une couronne pour son altesse</div>
+      </div>
+      <div class="b">
+        <div class="sal">Votre Altesse, ${prenom},</div>
+        <div class="st">Merci pour votre achat</div>
+        <div class="tx">Le Royaume Royal Tchitchi vous remercie pour votre confiance. Voici le récapitulatif de votre commande.</div>
+        <div class="enc">
+          <div class="et">🛒 Récapitulatif de votre achat</div>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr style="border-bottom:1px solid #333;">
+              <th style="text-align:left;color:#666;font-size:11px;padding-bottom:8px;font-weight:normal;">ARTICLE</th>
+              <th style="text-align:center;color:#666;font-size:11px;padding-bottom:8px;font-weight:normal;">QTÉ</th>
+              <th style="text-align:right;color:#666;font-size:11px;padding-bottom:8px;font-weight:normal;">MONTANT</th>
+            </tr>
+            ${articlesHtml}
+            <tr class="total-row">
+              <td colspan="2" style="padding-top:12px;color:#aaa;font-size:13px;">TOTAL</td>
+              <td style="padding-top:12px;text-align:right;color:#C9A84C;font-size:18px;font-weight:bold;">${totalGlobal} FCFA</td>
+            </tr>
+          </table>
+        </div>
+        <div class="enc">
+          <div class="et">👑 Votre Carte de Fidélité Royale</div>
+          <div style="background:#111;border-left:2px solid #C9A84C;border-radius:4px;padding:12px 16px;margin-bottom:12px;">
+            <div style="color:#C9A84C;font-size:14px;font-weight:bold;">${client.nom.toUpperCase()}</div>
+            ${client.telephone ? `<div style="color:#555;font-size:11px;margin-top:2px;">📱 ${client.telephone}</div>` : ''}
+            <div style="color:#333;font-size:10px;margin-top:4px;">N° ${client.id.toUpperCase()} · Émise le ${new Date().toLocaleDateString('fr-FR')}</div>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;text-align:center;">
+            <div style="background:#111;border-radius:6px;padding:10px 4px;border:1px solid #1a1a1a;"><div style="color:#C9A84C;font-size:16px;font-weight:bold;">-8%</div><div style="color:#444;font-size:10px;">2ème achat</div></div>
+            <div style="background:#111;border-radius:6px;padding:10px 4px;border:1px solid #1a1a1a;"><div style="color:#C9A84C;font-size:16px;font-weight:bold;">-10%</div><div style="color:#444;font-size:10px;">3ème achat</div></div>
+            <div style="background:#111;border-radius:6px;padding:10px 4px;border:1px solid #C9A84C;"><div style="color:#C9A84C;font-size:16px;font-weight:bold;">-15%</div><div style="color:#666;font-size:10px;">4ème+ achat</div></div>
+          </div>
+          <div style="text-align:center;margin-top:14px;"><span style="display:inline-block;border:1px solid #C9A84C;color:#C9A84C;font-size:10px;font-weight:bold;padding:9px 22px;border-radius:2px;letter-spacing:2px;text-transform:uppercase;">Votre fidélité est notre couronne</span></div>
+        </div>
+        <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
+      </div>
+      <div class="f">
+        <div class="fb">Royal Tchitchi</div>
+        <div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div>
+        <div style="color:#222;font-size:10px;font-style:italic;margin-top:8px;">— Une couronne pour son altesse —</div>
+      </div>
+    </div></body></html>`;
+
+    const ok = await envoyerEmail(client.email, `👑 Votre achat Royal Tchitchi — ${totalGlobal} FCFA`, html);
+    if (ok) client.carte_envoyee = true;
+    return ok;
+  } catch (err) {
+    console.error("Erreur email panier:", err.message);
+    return false;
+  }
+}
+
+
+// ─────────────────────────────────────────
 // ENVOI EMAIL CENTRALISÉ APRÈS CHAQUE VENTE
 // ─────────────────────────────────────────
 async function envoyerEmailsApresVente(result) {
@@ -835,18 +938,29 @@ async function finaliserVente(chatId, session, clientNom) {
   if (panier && panier.length > 1) {
     session.etape = null; session.data = {};
     let repGlobal = `✅ *Vente enregistrée !*\n👤 ${clientNom}\n\n`;
-    let totalGlobal = 0; let firstResult = null;
+    let totalGlobal = 0;
+    let firstResult = null;
+    const ventesEnregistrees = [];
+
     for (const item of panier) {
       const result = await enregistrerVenteComplete(item.produit.nom, item.quantite, clientNom, item.prix_unitaire);
       if (!result.erreur) {
         totalGlobal += item.total;
         repGlobal += `🛒 *${item.produit.nom}${item.produit.couleur?' — '+item.produit.couleur:''}* x${item.quantite} = ${item.total} FCFA${item.reduction?' 🎁-'+item.reduction+'%':''}\n`;
+        ventesEnregistrees.push(result);
         if (!firstResult) firstResult = result;
       } else { repGlobal += `❌ ${result.erreur}\n`; }
     }
     repGlobal += `\n💰 *Total: ${totalGlobal} FCFA*`;
     await sendMessage(chatId, repGlobal, { reply_markup: menuVentes() });
-    if (firstResult) await envoyerEmailsApresVente(firstResult);
+
+    // UN SEUL MAIL pour toute la vente multi-articles
+    if (firstResult && firstResult.client && firstResult.client.email) {
+      await envoyerEmailPanierComplet(firstResult.client, ventesEnregistrees, totalGlobal);
+    } else if (firstResult && firstResult.client && !firstResult.client.email) {
+      session.etape = "vente_client_email_apres";
+      session.data = { result: firstResult, panier: ventesEnregistrees, totalGlobal };
+    }
     return;
   }
 
