@@ -2545,6 +2545,18 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const pv = parseFloat(text.replace(/[^0-9.]/g,""));
     if (isNaN(pv) || pv <= 0) return sendMessage(chatId, `⚠️ Prix invalide. Entrez un nombre :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
     session.data.prix_vente = pv;
+    session.etape = "produit_prix_revendeur";
+    return sendMessage(chatId, `🤝 Prix revendeur (FCFA) :\n_Ou tapez "skip" si pas de prix revendeur_`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "produit_prix_revendeur") {
+    if (text === "skip") {
+      session.data.prix_revendeur = null;
+    } else {
+      const pr = parseFloat(text.replace(/[^0-9.]/g,""));
+      if (isNaN(pr) || pr <= 0) return sendMessage(chatId, `⚠️ Prix invalide. Entrez un nombre ou "skip" :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+      session.data.prix_revendeur = pr;
+    }
     session.etape = "produit_stock";
     return sendMessage(chatId, `🗃️ Stock initial (quantité) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
@@ -2575,6 +2587,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       caracteristiques: session.data.caracteristiques || "",
       prix_achat: session.data.prix_achat,
       prix_vente: session.data.prix_vente,
+      prix_revendeur: session.data.prix_revendeur || null,
       stock_initial: session.data.stock,
       stock: session.data.stock,
       photo_id: photo_id,
@@ -2593,6 +2606,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       caracteristiques: p.caracteristiques,
       prix_achat: p.prix_achat,
       prix_vente: p.prix_vente,
+      prix_revendeur: p.prix_revendeur || "",
       stock_initial: p.stock_initial,
       stock: p.stock,
       photo_id: p.photo_id || "",
@@ -2682,14 +2696,58 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     if (qte > session.data.produit.stock) return sendMessage(chatId, `⚠️ Max: ${session.data.produit.stock}`);
     session.data.quantite = qte;
-    // Proposer une réduction manuelle
     const p = session.data.produit;
+    // Si le produit a un prix revendeur → proposer le choix
+    if (p.prix_revendeur && p.prix_revendeur > 0) {
+      session.etape = "vente_type_client";
+      return sendMessage(chatId,
+        `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n\n👤 Type de vente :`,
+        { reply_markup: { keyboard: [["🛒 Client normal","🤝 Revendeur"],["❌ Annuler"]], resize_keyboard: true } }
+      );
+    }
+    // Sinon → réduction directement
     const prixTotal = p.prix_vente * qte;
     session.etape = "vente_reduction_manuelle";
     return sendMessage(chatId,
       `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
       { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
     );
+  }
+
+
+  if (session.etape === "vente_type_client") {
+    const p = session.data.produit;
+    const qte = session.data.quantite;
+    if (text === "🤝 Revendeur") {
+      // Prix revendeur → pas de réduction manuelle, aller direct au panier
+      const prixRev = p.prix_revendeur;
+      if (!session.data.panier) session.data.panier = [];
+      session.data.panier.push({
+        produit: p, quantite: qte, prix_unitaire: prixRev,
+        reduction: 0, total: prixRev * qte, type: "revendeur"
+      });
+      session.data.produit = null; session.data.quantite = null;
+      const panierTotal = session.data.panier.reduce((s,a) => s+a.total, 0);
+      let recap = `🛒 *Panier (${session.data.panier.length} article(s))*\n`;
+      session.data.panier.forEach((a,i) => {
+        recap += `${i+1}. ${a.produit.nom}${a.produit.couleur?' — '+a.produit.couleur:''} x${a.quantite} = ${a.total} FCFA${a.type==='revendeur'?' 🤝':''}${a.reduction?' 🎁-'+a.reduction+'%':''}\n`;
+      });
+      recap += `\n💰 *Total: ${panierTotal} FCFA*`;
+      const peutAjouter = session.data.panier.length < 10 && db.produits.some(p => p.stock > 0);
+      const bPanier = [];
+      if (peutAjouter) bPanier.push(["➕ Ajouter un article"]);
+      bPanier.push(["✅ Finaliser la vente"], ["❌ Annuler"]);
+      session.etape = "vente_panier";
+      return sendMessage(chatId, recap, { reply_markup: { keyboard: bPanier, resize_keyboard: true } });
+    } else {
+      // Client normal → réduction
+      const prixTotal = p.prix_vente * qte;
+      session.etape = "vente_reduction_manuelle";
+      return sendMessage(chatId,
+        `📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
+        { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+      );
+    }
   }
 
   if (session.etape === "vente_reduction_manuelle") {
