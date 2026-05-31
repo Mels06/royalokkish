@@ -891,6 +891,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     produit_photo_url: produit.photo_url || null,
     prix_achat_unitaire: produit.prix_achat,
     prix_vente_unitaire: prixVente,
+    prix_vente_normal: produit.prix_vente, // toujours le prix catalogue pour l'email
     quantite: qte,
     montant_total,
     marge_totale,
@@ -2891,7 +2892,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
     );
     const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-    b.push(["➕ Nouveau client"], ["🤝 Revendeur"], ["Anonyme"], ["❌ Annuler"]);
+    b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
     return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_reduction_saisie") {
@@ -2934,7 +2935,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
         !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
       );
       const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-      b.push(["➕ Nouveau client"], ["🤝 Revendeur"], ["Anonyme"], ["❌ Annuler"]);
+      b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
       const panierTotal = session.data.panier.reduce((s, a) => s + a.total, 0);
       return sendMessage(chatId, `💰 Total: *${panierTotal} FCFA*\n\n👤 Client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
     }
@@ -2945,27 +2946,6 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
 
   if (session.etape === "vente_client") {
     const clientNom = text.replace("⭐ ", "").trim();
-
-    // Revendeur → appliquer prix revendeur sur tous les articles du panier
-    if (clientNom === "🤝 Revendeur") {
-      if (session.data.panier && session.data.panier.length > 0) {
-        // Recalculer le panier avec les prix revendeur
-        let ok = true;
-        session.data.panier = session.data.panier.map(item => {
-          const p = item.produit;
-          if (!p.prix_revendeur) { ok = false; return item; }
-          return { ...item, prix_unitaire: p.prix_revendeur, total: p.prix_revendeur * item.quantite, type: "revendeur" };
-        });
-        if (!ok) return sendMessage(chatId, `⚠️ Certains produits n'ont pas de prix revendeur.`);
-      } else if (session.data.produit) {
-        // Article unique
-        if (!session.data.produit.prix_revendeur) return sendMessage(chatId, `⚠️ Ce produit n'a pas de prix revendeur défini.`);
-        session.data.prixOverride = session.data.produit.prix_revendeur;
-      }
-      // Continuer avec Anonyme comme client revendeur
-      await finaliserVente(chatId, session, "Revendeur");
-      return;
-    }
 
     // Nouveau client → collecter les infos
     if (clientNom === "➕ Nouveau client") {
