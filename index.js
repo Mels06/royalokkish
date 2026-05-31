@@ -601,6 +601,7 @@ async function chargerDepuisSheets(force = false) {
         caracteristiques: p["Caractéristiques"] || p.caracteristiques || "",
         prix_achat: parseFloat(p["Prix Achat"] || p.prix_achat) || 0,
         prix_vente: parseFloat(p["Prix Vente"] || p.prix_vente) || 0,
+        prix_revendeur: parseFloat(p["Prix Revendeur"] || p.prix_revendeur) || null,
         stock_initial: parseInt(p["Stock Initial"] || p.stock_initial) || 0,
         stock: parseInt(p["Stock Actuel"] || p["Stock"] || p.stock) || 0,
         photo_url: p["Photo URL"] || p.photo_url || null,
