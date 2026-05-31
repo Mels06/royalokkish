@@ -85,8 +85,8 @@ async function envoyerCarteFidelite(client, vente = null) {
       <div class="enc">
         <div class="et">🛒 Récapitulatif de votre achat</div>
         <div style="text-align:center;margin-bottom:14px;">
-          ${vente.reduction_appliquee || (vente.montant_total < vente.quantite * (vente.prix_achat_unitaire||0)) ? `<div style="color:#666;font-size:12px;text-decoration:line-through;margin-bottom:4px;">${(vente.prix_vente_unitaire * vente.quantite)} FCFA</div>` : ''}
-          <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${vente.montant_total} FCFA</div>
+          ${vente.reduction_appliquee ? `<div style="color:#666;font-size:12px;text-decoration:line-through;margin-bottom:4px;">${(vente.prix_vente_unitaire * vente.quantite)} FCFA</div>` : ''}
+          <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${(vente.prix_vente_normal || vente.prix_vente_unitaire) * vente.quantite} FCFA</div>
         </div>
         <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#888;line-height:1.8;">
           <tr>
@@ -173,7 +173,7 @@ async function envoyerEmailReduction(client, vente, montantAvant, reduction, tau
       <div class="et">🎁 Récapitulatif de votre achat</div>
       <div style="text-align:center;margin-bottom:16px;">
         <div style="color:#666;font-size:12px;text-decoration:line-through;margin-bottom:4px;">Prix initial : ${montantAvant} FCFA</div>
-        <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${vente.montant_total} FCFA</div>
+        <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${(vente.prix_vente_normal || vente.prix_vente_unitaire) * vente.quantite} FCFA</div>
         <div style="color:#aaa;font-size:13px;margin-top:6px;">Vous avez économisé : <strong style="color:#C9A84C;">${reduction} FCFA</strong></div>
       </div>
       <table width="100%" cellpadding="0" cellspacing="0">
@@ -181,7 +181,7 @@ async function envoyerEmailReduction(client, vente, montantAvant, reduction, tau
           <td style="font-size:13px;color:#888;line-height:2;vertical-align:middle;padding:4px 8px 4px 0;">
             • Produit : <strong style="color:#fff;">${vente.produit_nom}${vente.produit_couleur ? ' — '+vente.produit_couleur : ''}</strong><br>
             • Quantité : <strong style="color:#fff;">${vente.quantite}</strong><br>
-            • Prix unitaire : <strong style="color:#fff;">${vente.montant_total} FCFA</strong><br>
+            • Prix unitaire : <strong style="color:#fff;">${vente.prix_vente_normal || vente.prix_vente_unitaire} FCFA</strong><br>
             • Date : <strong style="color:#fff;">${new Date().toLocaleString('fr-FR',{timeZone:'Africa/Porto-Novo'})}</strong>
           </td>
           ${vente.produit_photo_url && vente.produit_photo_url.startsWith('http') ? `<td style="vertical-align:middle;text-align:right;width:100px;padding-left:12px;"><img src="${vente.produit_photo_url}" width="90" height="90" style="object-fit:contain;border-radius:8px;border:1px solid #C9A84C;display:block;background:#0a0a0a;"></td>` : ''}
@@ -892,6 +892,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     prix_achat_unitaire: produit.prix_achat,
     prix_vente_unitaire: prixVente,
     prix_vente_normal: produit.prix_vente, // toujours le prix catalogue pour l'email
+    is_revendeur: prixVenteOverride !== null && prixVenteOverride === produit.prix_revendeur,
     quantite: qte,
     montant_total,
     marge_totale,
