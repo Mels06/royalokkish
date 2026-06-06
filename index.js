@@ -914,11 +914,8 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     client.ca_total += montant_total;
     client.derniere_visite = new Date().toISOString();
 
-    // Envoyer email notification réduction (sauf si panier multi-articles)
-    if (!skipEmail && reductionAppliquee && client.email) {
-      const tauxReel = Math.round(getTauxReduction(client.nb_achats - 1) * 100);
-      await envoyerEmailReduction(client, vente, montantAvant, montantReduction, tauxReel);
-    }
+    // Email géré uniquement par envoyerEmailsApresVente dans finaliserVente
+    // (supprimé ici pour éviter les doublons)
   }
 
   envoyerVersSheets("nouvelle_vente", {
