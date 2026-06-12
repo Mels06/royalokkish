@@ -145,7 +145,7 @@ async function envoyerEmailRelance(client) {
     <div class="enc">
       <div class="et">✨ Nouvelle Collection</div>
       <div style="color:#888;font-size:13px;line-height:1.9;text-align:center;margin-bottom:14px;">Montures tendance, lunettes de soleil de prestige,<br>étuis sur mesure — tout pour sublimer votre regard royal.</div>
-      <div class="btn-wrap"><a href="https://photos.app.goo.gl/5F9nje2GwMZpujTw7" style="display:inline-block;border:1px solid #C9A84C;color:#C9A84C;font-size:10px;font-weight:bold;padding:9px 22px;border-radius:2px;letter-spacing:2px;text-transform:uppercase;text-decoration:none;background:transparent;">Découvrir la collection</a></div>
+      <div class="btn-wrap"><a href="https://photos.app.goo.gl/jtrFBrYhejcNFQG38" style="display:inline-block;border:1px solid #C9A84C;color:#C9A84C;font-size:10px;font-weight:bold;padding:9px 22px;border-radius:2px;letter-spacing:2px;text-transform:uppercase;text-decoration:none;background:transparent;">Découvrir la collection</a></div>
     </div>
     <div class="tx">Nous serions ravis de vous accueillir à nouveau.</div>
     <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
@@ -2234,7 +2234,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (text === "🖼️ Notre Gamme") {
     return sendMessage(chatId,
-      `🖼️ *Découvrez notre gamme Royal Tchitchi*\n\nRetrouvez toutes nos collections de lunettes sur notre album photo :\n\n👉 https://photos.app.goo.gl/5F9nje2GwMZpujTw7\n\n_Une couronne pour son altesse_ 👑`,
+      `🖼️ *Découvrez notre gamme Royal Tchitchi*\n\nRetrouvez toutes nos collections de lunettes sur notre album photo :\n\n👉 https://photos.app.goo.gl/jtrFBrYhejcNFQG38\n\n_Une couronne pour son altesse_ 👑`,
       { reply_markup: menuPrincipal() }
     );
   }
