@@ -623,6 +623,10 @@ async function chargerDepuisSheets(force = false) {
         ca_total: parseFloat(c["CA Total"] || c.ca_total) || 0,
         carte_envoyee: (c["Carte Envoyée"] || c.carte_envoyee) === true || (c["Carte Envoyée"] || c.carte_envoyee) === "TRUE" || false,
         cree_le: c["Date"] || c.cree_le || new Date().toISOString(),
+        derniere_visite: (() => {
+          // Sera calculée après chargement des ventes
+          return c["Date"] || c.cree_le || new Date().toISOString();
+        })(),
       }));
       console.log(`✅ ${db.clients.length} client(s) chargé(s)`);
     }
@@ -653,6 +657,16 @@ async function chargerDepuisSheets(force = false) {
         })(),
       }));
       console.log(`✅ ${db.ventes.length} vente(s) chargée(s)`);
+      // Calculer derniere_visite pour chaque client depuis les ventes
+      db.clients.forEach(client => {
+        const ventesClient = db.ventes.filter(v => v.client_nom === client.nom);
+        if (ventesClient.length > 0) {
+          const dates = ventesClient.map(v => new Date(v.date)).filter(d => !isNaN(d));
+          if (dates.length > 0) {
+            client.derniere_visite = new Date(Math.max(...dates)).toISOString();
+          }
+        }
+      });
     }
 
     // Charger charges - TOUTES sans limite
