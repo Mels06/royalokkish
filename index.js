@@ -1141,7 +1141,7 @@ async function sendMessage(chatId, text, options = {}) {
 }
 
 function menuPrincipal() {
-  return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🖼️ Notre Gamme", "🤖 IA"]], resize_keyboard: true };
+  return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🤖 IA"]], resize_keyboard: true };
 }
 function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["✏️ Modifier produit", "🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
