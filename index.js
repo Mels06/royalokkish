@@ -1769,12 +1769,12 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   }
 
   if (text === "😴 Clients inactifs") {
-    // Inactifs = aucun achat depuis 30+ jours
+    // Inactifs = aucun achat depuis 1 an (365 jours)
     const maintenant = new Date();
-    const il_y_a_30j = new Date(maintenant.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const il_y_a_1an = new Date(maintenant.getTime() - 365 * 24 * 60 * 60 * 1000);
     const inactifs = db.clients.filter(c => {
       const dernVisite = new Date(c.derniere_visite || c.cree_le);
-      return dernVisite < il_y_a_30j;
+      return dernVisite < il_y_a_1an;
     }).sort((a, b) => new Date(a.derniere_visite || a.cree_le) - new Date(b.derniere_visite || b.cree_le));
 
     if (inactifs.length === 0)
