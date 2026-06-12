@@ -623,6 +623,7 @@ async function chargerDepuisSheets(force = false) {
         ca_total: parseFloat(c["CA Total"] || c.ca_total) || 0,
         carte_envoyee: (c["Carte Envoyée"] || c.carte_envoyee) === true || (c["Carte Envoyée"] || c.carte_envoyee) === "TRUE" || false,
         cree_le: c["Date"] || c.cree_le || new Date().toISOString(),
+        derniere_relance: c["Dernière Relance"] || c.derniere_relance || null,
         derniere_visite: (() => {
           // Sera calculée après chargement des ventes
           return c["Date"] || c.cree_le || new Date().toISOString();
@@ -1786,8 +1787,11 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     // Inactifs = aucun achat depuis 1 an (365 jours)
     const maintenant = new Date();
     const il_y_a_1an = new Date(maintenant.getTime() - 365 * 24 * 60 * 60 * 1000);
+    const il_y_a_3mois = new Date(maintenant.getTime() - 90 * 24 * 60 * 60 * 1000);
     const inactifs = db.clients.filter(c => {
       const dernVisite = new Date(c.derniere_visite || c.cree_le);
+      // Exclure si relancé dans les 3 derniers mois
+      if (c.derniere_relance && new Date(c.derniere_relance) > il_y_a_3mois) return false;
       return dernVisite < il_y_a_1an;
     }).sort((a, b) => new Date(a.derniere_visite || a.cree_le) - new Date(b.derniere_visite || b.cree_le));
 
@@ -1825,9 +1829,13 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     let ok = 0, ko = 0;
     for (const c of inactifs) {
       const envoye = await envoyerEmailRelance(c);
-      if (envoye) ok++; else ko++;
+      if (envoye) {
+        ok++;
+        c.derniere_relance = new Date().toISOString();
+        await envoyerVersSheets("mettre_a_jour_client", { id: c.id, derniere_relance: new Date().toISOString() });
+      } else ko++;
     }
-    return sendMessage(chatId, `✅ *Relance envoyée !*\n📧 ${ok} email(s) envoyé(s)${ko > 0 ? `\n❌ ${ko} échec(s)` : ""}`, { reply_markup: menuFidelite() });
+    return sendMessage(chatId, `✅ *Relance envoyée !*\n📧 ${ok} email(s) envoyé(s)${ko > 0 ? `\n❌ ${ko} échec(s)` : ""}\n\n_Ces clients n'apparaîtront plus pendant 3 mois._`, { reply_markup: menuFidelite() });
   }
 
   // ── RELANCE EMAIL INDIVIDUELLE ──
@@ -2347,9 +2355,13 @@ Si prix non visible mets 0. Si plusieurs ventes, plusieurs objets.` },
     if (!client) return sendMessage(chatId, `❌ Client non trouvé.`, { reply_markup: menuFidelite() });
     await sendMessage(chatId, `⏳ Envoi en cours...`);
     const envoye = await envoyerEmailRelance(client);
+    if (envoye) {
+      client.derniere_relance = new Date().toISOString();
+      await envoyerVersSheets("mettre_a_jour_client", { id: client.id, derniere_relance: new Date().toISOString() });
+    }
     return sendMessage(chatId,
       envoye
-        ? `✅ Email de relance envoyé à *${client.nom}* (${client.email}) 👑`
+        ? `✅ Email de relance envoyé à *${client.nom}* (${client.email}) 👑\n\n_${client.nom} n'apparaîtra plus pendant 3 mois._`
         : `❌ Erreur envoi email.`,
       { reply_markup: menuFidelite() }
     );
