@@ -2738,20 +2738,19 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     db.clients.push(client);
     await envoyerVersSheets("nouveau_client", { nom: client.nom, email: client.email, telephone: client.telephone, note: client.note, date: new Date().toLocaleString("fr-FR") });
 
-    // Envoyer carte fidélité par email si email renseigné
-    let carteMsg = "";
-    if (client.email) {
-      const envoye = await envoyerCarteFidelite(client);
-      client.carte_envoyee = envoye;
-      carteMsg = envoye ? `\n📧 Carte fidélité envoyée à ${client.email} ✅` : `\n📧 Erreur envoi carte ⚠️`;
-    } else {
-      carteMsg = `\n📧 Pas d'email — carte non envoyée`;
-    }
+    // Carte fidélité envoyée uniquement après un achat, pas à la création
+
+
+
+
+
+
+
+
 
     session.etape = null; session.data = {};
     return sendMessage(chatId,
-      `✅ *Client ajouté !*\n👤 ${client.nom}\n📱 ${client.telephone || "—"}\n📧 ${client.email || "—"}${carteMsg}`,
-      { reply_markup: menuClients() }
+      `✅ *Client ajouté !*\n👤 ${client.nom}\n📱 ${client.telephone || "—"}\n📧 ${client.email || "—"}`,
     );
   }
 
