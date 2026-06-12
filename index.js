@@ -1212,7 +1212,7 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   if (text === "🔄 Restock") {
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     session.etape = "restock_modele"; session.data = {};
-    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))].sort();
     const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
     return sendMessage(chatId, `🔄 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
@@ -1481,7 +1481,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "➕ Vente rapide") {
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Ajoutez d'abord un produit !`, { reply_markup: menuVentes() });
     session.etape = "vente_modele"; session.data = { panier: [] };
-    const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))];
+    const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))].sort();
     const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
     return sendMessage(chatId, `🛒 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
@@ -1862,7 +1862,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     await chargerDepuisSheets();
     if (db.produits.length === 0) return sendMessage(chatId, `📦 Aucun produit.`, { reply_markup: menuProduits() });
     // Grouper par modèle
-    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))].sort();
     const b = nomsUniques.map(nom => [`🗑️ ${nom}`]); b.push(["❌ Annuler"]);
     session.etape = "supprimer_produit_modele"; session.data = {};
     return sendMessage(chatId, `🗑️ *Supprimer quel modèle ?*\n⚠️ Toutes les couleurs seront supprimées.`, { reply_markup: { keyboard: b, resize_keyboard: true } });
@@ -2076,7 +2076,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   // ══════════════════════════════════════════
   if (text === "✏️ Modifier produit") {
     await chargerDepuisSheets();
-    const nomsUniques = [...new Set(db.produits.map(p => p.nom))];
+    const nomsUniques = [...new Set(db.produits.map(p => p.nom))].sort();
     const b = nomsUniques.map(nom => [`✏️ ${nom}`]); b.push(["❌ Annuler"]);
     session.etape = "modifier_produit_modele"; session.data = {};
     return sendMessage(chatId, `✏️ *Modifier quel modèle ?*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
@@ -2953,7 +2953,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "vente_panier") {
     if (text === "➕ Ajouter un article") {
       // Retourner au choix modèle (exclure les produits déjà au max de stock)
-      const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))];
+      const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))].sort();
       session.etape = "vente_modele";
       const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
       return sendMessage(chatId, `🛒 Ajouter un article :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
