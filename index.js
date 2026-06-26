@@ -1028,7 +1028,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
   }
 
   envoyerVersSheets("nouvelle_vente", {
-    client: vente.client_nom, produit: produit.nom, quantite: qte,
+    client: vente.client_nom, produit: produit.nom, couleur: produit.couleur || "", quantite: qte,
     prix_vente: prixVente, montant_total, marge_totale,
     reduction: reductionAppliquee || 0,
     type_vente: vente.is_revendeur ? "Revendeur" : "Normal",
@@ -2368,17 +2368,36 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     });
     if (!vente) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuVentes() });
     session.data.vente = vente; session.etape = "modifier_vente_champ";
-    return sendMessage(chatId, `✏️ *${vente.produit_nom}* | ${vente.client_nom} | ${vente.montant_total} FCFA\nQue modifier ?`,
-      { reply_markup: { keyboard: [["👤 Client","📦 Produit"],["💰 Prix","🔢 Quantité"],["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `✏️ *${vente.produit_nom}${vente.produit_couleur?' — '+vente.produit_couleur:''}* | ${vente.client_nom} | ${vente.montant_total} FCFA\nQue modifier ?`,
+      { reply_markup: { keyboard: [["👤 Client","📦 Produit"],["🎨 Couleur","💰 Prix"],["🔢 Quantité"],["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_vente_champ") {
-    const cm = {"👤 Client":"client_nom","📦 Produit":"produit_nom","💰 Prix":"montant_total","🔢 Quantité":"quantite"};
+    const cm = {"👤 Client":"client_nom","📦 Produit":"produit_nom","🎨 Couleur":"produit_couleur","💰 Prix":"montant_total","🔢 Quantité":"quantite"};
     if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() }); }
     session.data.champ = cm[text]; session.etape = "modifier_vente_valeur";
     return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_vente_valeur") {
     const vente = session.data.vente; const champ = session.data.champ;
+
+    // Sécurité couleur: valider contre les couleurs réellement existantes pour ce modèle
+    if (champ === "produit_couleur") {
+      const couleurSaisie = text.trim();
+      const variantesExistantes = db.produits.filter(p => p.nom.toLowerCase() === vente.produit_nom.toLowerCase());
+      const couleurExacte = variantesExistantes.find(p => p.couleur && p.couleur.toLowerCase() === couleurSaisie.toLowerCase());
+      if (!couleurExacte) {
+        const couleursDispo = variantesExistantes.map(v => v.couleur).filter(Boolean);
+        if (couleursDispo.length > 0) {
+          return sendMessage(chatId, `⚠️ Couleur "${couleurSaisie}" introuvable pour *${vente.produit_nom}*.\nCouleurs existantes : ${couleursDispo.join(", ")}`);
+        }
+        return sendMessage(chatId, `⚠️ Aucune couleur enregistrée pour *${vente.produit_nom}*. Vérifiez l'orthographe.`);
+      }
+      vente.produit_couleur = couleurExacte.couleur;
+      await envoyerVersSheets("modifier_vente", { id: vente.id, client: vente.client_nom, produit: vente.produit_nom, couleur: vente.produit_couleur, montant_total: vente.montant_total, quantite: vente.quantite });
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `✅ Couleur mise à jour : *${vente.produit_nom} — ${vente.produit_couleur}*`, { reply_markup: menuVentes() });
+    }
+
     const val = ['montant_total','quantite'].includes(champ) ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
     if (['montant_total','quantite'].includes(champ) && isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
     vente[champ] = val;
