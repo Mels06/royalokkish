@@ -903,11 +903,16 @@ function offrirEtui(qte, clientNom) {
   return { nom: etui.nom, stock_restant: etui.stock, alerte: etui.stock <= 5 };
 }
 
-async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null, skipEmail = false) {
-  // Chercher par "Nom Couleur" exact d'abord
-  let produit = db.produits.find(p => {
+async function enregistrerVenteComplete(produitNomOuId, qte, clientInfo, prixVenteOverride = null, skipEmail = false) {
+  // PRIORITÉ ABSOLUE : si un ID produit exact est fourni (objet déjà sélectionné par l'utilisateur
+  // via les boutons de l'interface), on l'utilise directement — AUCUNE recherche, AUCUNE ambiguïté possible.
+  let produit = db.produits.find(p => p.id === produitNomOuId);
+
+  // Sinon, on retombe sur la recherche textuelle (cas de la vente texte / IA, où on n'a qu'un nom)
+  const produitNom = produitNomOuId;
+  if (!produit) produit = db.produits.find(p => {
     const nomAvecCouleur = p.couleur ? (p.nom + " " + p.couleur).toLowerCase() : p.nom.toLowerCase();
-    return nomAvecCouleur === produitNom.toLowerCase();
+    return nomAvecCouleur === String(produitNom).toLowerCase();
   });
 
   if (!produit) {
@@ -1060,7 +1065,8 @@ async function finaliserVente(chatId, session, clientNom) {
     const ventesEnregistrees = [];
 
     for (const item of panier) {
-      const result = await enregistrerVenteComplete(item.produit.nom, item.quantite, clientNom, item.prix_unitaire, true); // skipEmail=true pour panier
+      // On passe l'ID exact de l'objet produit déjà sélectionné — aucune reconstruction de texte, aucune ambiguïté
+      const result = await enregistrerVenteComplete(item.produit.id, item.quantite, clientNom, item.prix_unitaire, true); // skipEmail=true pour panier
       if (!result.erreur) {
         totalGlobal += item.total;
         repGlobal += `🛒 *${item.produit.nom}${item.produit.couleur?' — '+item.produit.couleur:''}* x${item.quantite} = ${item.total} FCFA${item.reduction?' 🎁-'+item.reduction+'%':''}\n`;
@@ -1097,10 +1103,11 @@ async function finaliserVente(chatId, session, clientNom) {
       prixOverride = Math.round(session.data.produit.prix_vente * (1 - session.data.reduction_manuelle / 100));
     }
   }
-  const result = await enregistrerVenteComplete(session.data.produit.nom, session.data.quantite, clientNom, prixOverride);
+  // On passe l'ID exact de l'objet produit déjà sélectionné — aucune reconstruction de texte, aucune ambiguïté
+  const result = await enregistrerVenteComplete(session.data.produit.id, session.data.quantite, clientNom, prixOverride);
   if (result.erreur) {
-    session.etape = null; session.data = {};
-    return sendMessage(chatId, `❌ ${result.erreur}`, { reply_markup: menuVentes() });
+    session.etape = "vente_texte"; session.data = {};
+    return sendMessage(chatId, `❌ ${result.erreur}\n\n✏️ Réessayez en précisant bien le produit, la couleur, la quantité et le client :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
 
   // Si client sans email → demander l'email pour la carte fidélité
