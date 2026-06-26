@@ -130,6 +130,46 @@ async function envoyerCarteFidelite(client, vente = null) {
   } catch (err) { console.error("Erreur carte fidélité:", err.message); return false; }
 }
 
+// Email de confirmation simple (vente revendeur — sans carte fidélité)
+async function envoyerEmailConfirmationSimple(client, vente) {
+  if (!emailConfig || !client.email) return false;
+  try {
+    const prenom = client.nom.split(' ')[0];
+    const recap = `
+      <div class="enc">
+        <div class="et">🛒 Récapitulatif de votre achat</div>
+        <div style="text-align:center;margin-bottom:14px;">
+          <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${(vente.prix_vente_normal || vente.prix_vente_unitaire) * vente.quantite} FCFA</div>
+        </div>
+        <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#888;line-height:1.8;">
+          <tr>
+            <td style="vertical-align:top;padding-right:12px;">
+              <div style="margin-bottom:4px;">• Produit : <strong style="color:#fff;">${vente.produit_nom}${vente.produit_couleur ? ' — '+vente.produit_couleur : ''}</strong></div>
+              <div style="margin-bottom:4px;">• Quantité : <strong style="color:#fff;">${vente.quantite}</strong></div>
+              <div>• Date : <strong style="color:#fff;">${new Date().toLocaleString('fr-FR',{timeZone:'Africa/Porto-Novo'})}</strong></div>
+            </td>
+            ${vente.produit_photo_url && vente.produit_photo_url.startsWith('http') ? `<td style="vertical-align:middle;text-align:right;width:100px;padding-left:12px;"><img src="${vente.produit_photo_url}" width="95" height="95" style="object-fit:contain;border-radius:8px;border:1px solid #C9A84C;display:block;background:#111;"></td>` : ''}
+          </tr>
+        </table>
+      </div>`;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>*{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;color:#333;}.w{max-width:600px;margin:0 auto;background:#fff;}.h{background:#0a0a0a;padding:30px;text-align:center;}.logo{width:60px;height:60px;object-fit:contain;margin-bottom:10px;}.brand{color:#C9A84C;font-size:18px;font-weight:bold;letter-spacing:4px;text-transform:uppercase;}.sl{color:#555;font-size:10px;letter-spacing:2px;font-style:italic;margin-top:4px;}.b{background:#fff;padding:32px 40px;}.sal{font-size:18px;color:#111;font-weight:bold;margin-bottom:4px;}.st{color:#C9A84C;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-style:italic;margin-bottom:20px;}.enc{background:#0a0a0a;border-radius:8px;padding:24px;margin:20px 0;}.et{color:#C9A84C;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;text-align:center;margin-bottom:16px;}.tx{font-size:14px;color:#444;line-height:1.8;margin-bottom:16px;}.sig{border-top:1px solid #eee;padding-top:20px;margin-top:20px;font-size:13px;color:#666;line-height:2;}.sig strong{color:#111;font-size:14px;}.sig em{color:#C9A84C;font-size:12px;}.f{background:#0a0a0a;padding:20px;text-align:center;}.fb{color:#C9A84C;font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-bottom:8px;}.fc{color:#555;font-size:11px;line-height:2;}.fs{color:#222;font-size:10px;font-style:italic;margin-top:8px;letter-spacing:1px;}</style></head>
+<body><div class="w">
+  <div class="h"><img class="logo" src="${LOGO_DRIVE_URL}" alt="RT"><div class="brand">Royal Tchitchi</div><div class="sl">Une couronne pour son altesse</div></div>
+  <div class="b">
+    <div class="sal">Votre Altesse, ${prenom},</div>
+    <div class="st">Confirmation de votre achat</div>
+    <div class="tx">Nous vous confirmons votre achat chez Royal Tchitchi. Merci de votre confiance.<br><br>Chez Royal Tchitchi, chaque lunette est bien plus qu'un accessoire : <em style="color:#C9A84C;">c'est une couronne que l'on pose sur son visage.</em></div>
+    ${recap}
+    <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
+  </div>
+  <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div><div class="fs">— Une couronne pour son altesse —</div></div>
+</div></body></html>`;
+    const ok = await envoyerEmail(client.email, `✅ Confirmation de votre achat — Royal Tchitchi`, html);
+    return ok;
+  } catch (err) { console.error("Erreur confirmation simple:", err.message); return false; }
+}
+
+
 // Email de relance client
 async function envoyerEmailRelance(client) {
   if (!emailConfig || !client.email) return false;
@@ -207,6 +247,13 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
   if (!emailConfig || !client.email) return false;
   try {
     const prenom = client.nom.split(' ')[0];
+    // Total affiché dans le mail = toujours basé sur le prix de vente normal (jamais le prix revendeur)
+    const totalAffiche = ventes.reduce((s, r) => {
+      const v = r.vente;
+      return s + (v.is_revendeur ? (v.prix_vente_normal * v.quantite) : v.montant_total);
+    }, 0);
+    // Si TOUS les articles sont des ventes revendeur, on masque le bloc carte fidélité
+    const toutRevendeur = ventes.every(r => r.vente && r.vente.is_revendeur);
 
     // Construire le récap des articles
     let articlesHtml = '';
@@ -226,7 +273,7 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
           </td>
           <td style="padding:10px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#aaa;text-align:center;vertical-align:middle;">x${v.quantite}</td>
           <td style="padding:10px 0;border-bottom:1px solid #1e1e1e;font-size:13px;color:#C9A84C;text-align:right;font-weight:bold;vertical-align:middle;">
-            ${v.montant_total} FCFA
+            ${v.is_revendeur ? (v.prix_vente_normal * v.quantite) : v.montant_total} FCFA
           </td>
         </tr>`;
     });
@@ -273,11 +320,11 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
             ${articlesHtml}
             <tr class="total-row">
               <td colspan="2" style="padding-top:12px;color:#aaa;font-size:13px;">TOTAL</td>
-              <td style="padding-top:12px;text-align:right;color:#C9A84C;font-size:18px;font-weight:bold;">${totalGlobal} FCFA</td>
+              <td style="padding-top:12px;text-align:right;color:#C9A84C;font-size:18px;font-weight:bold;">${totalAffiche} FCFA</td>
             </tr>
           </table>
         </div>
-        <div class="enc">
+        ${!toutRevendeur ? `<div class="enc">
           <div class="et">👑 Votre Carte de Fidélité Royale</div>
           <div style="background:#111;border-left:2px solid #C9A84C;border-radius:4px;padding:12px 16px;margin-bottom:12px;">
             <div style="color:#C9A84C;font-size:14px;font-weight:bold;">${client.nom.toUpperCase()}</div>
@@ -290,7 +337,7 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
             <div style="background:#111;border-radius:6px;padding:10px 4px;border:1px solid #C9A84C;"><div style="color:#C9A84C;font-size:16px;font-weight:bold;">-15%</div><div style="color:#666;font-size:10px;">4ème+ achat</div></div>
           </div>
           <div style="text-align:center;margin-top:14px;"><span style="display:inline-block;border:1px solid #C9A84C;color:#C9A84C;font-size:10px;font-weight:bold;padding:9px 22px;border-radius:2px;letter-spacing:2px;text-transform:uppercase;">Votre fidélité est notre couronne</span></div>
-        </div>
+        </div>` : ''}
         <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
       </div>
       <div class="f">
@@ -300,8 +347,8 @@ async function envoyerEmailPanierComplet(client, ventes, totalGlobal) {
       </div>
     </div></body></html>`;
 
-    const ok = await envoyerEmail(client.email, `👑 Votre achat Royal Tchitchi — ${totalGlobal} FCFA`, html);
-    if (ok) client.carte_envoyee = true;
+    const ok = await envoyerEmail(client.email, `👑 Votre achat Royal Tchitchi — ${totalAffiche} FCFA`, html);
+    if (ok && !toutRevendeur) client.carte_envoyee = true;
     return ok;
   } catch (err) {
     console.error("Erreur email panier:", err.message);
@@ -317,6 +364,13 @@ async function envoyerEmailsApresVente(result) {
   if (!result || !result.client || !result.client.email) return;
   const client = result.client;
   const vente = result.vente;
+
+  // Vente revendeur : email de confirmation simple, jamais de logique fidélité
+  if (vente && vente.is_revendeur) {
+    const ok = await envoyerEmailConfirmationSimple(client, vente);
+    console.log(`📧 Vente revendeur pour ${client.nom} — email confirmation simple: ${ok ? '✅' : '❌'} (pas de carte fidélité).`);
+    return;
+  }
 
   console.log(`📧 Email → ${client.nom} (${client.email}) | achats: ${client.nb_achats} | réduction: ${result.reductionAppliquee}`);
 
@@ -850,28 +904,60 @@ function offrirEtui(qte, clientNom) {
 }
 
 async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOverride = null, skipEmail = false) {
-  // Chercher par "Nom Couleur" exact d'abord, puis par nom seul
+  // Chercher par "Nom Couleur" exact d'abord
   let produit = db.produits.find(p => {
     const nomAvecCouleur = p.couleur ? (p.nom + " " + p.couleur).toLowerCase() : p.nom.toLowerCase();
     return nomAvecCouleur === produitNom.toLowerCase();
   });
+
   if (!produit) {
-    // Chercher par nom qui contient
-    const variantes = db.produits.filter(p => p.nom.toLowerCase().includes(produitNom.toLowerCase()));
-    if (variantes.length > 0) produit = variantes.sort((a, b) => b.stock - a.stock)[0];
+    // Pas de correspondance exacte → chercher les variantes du même modèle (sans deviner la couleur)
+    const variantes = db.produits.filter(p => p.nom.toLowerCase() === produitNom.toLowerCase());
+    if (variantes.length === 1) {
+      // Une seule couleur pour ce modèle → pas d'ambiguïté
+      produit = variantes[0];
+    } else if (variantes.length > 1) {
+      // Plusieurs couleurs existent mais aucune ne correspond exactement → BLOQUER et demander
+      const couleursListe = variantes.map(v => v.couleur).join(", ");
+      return { erreur: `⚠️ Le modèle "${produitNom}" a plusieurs couleurs (${couleursListe}). Précisez la couleur exacte, par exemple : "${produitNom} ${variantes[0].couleur}".` };
+    } else {
+      // Aucun modèle exact trouvé → chercher par inclusion partielle du nom (sans couleur)
+      const motsRecherche = produitNom.toLowerCase().split(' ');
+      const nomSeul = motsRecherche[0]; // premier mot = nom du modèle probable
+      const candidats = db.produits.filter(p => p.nom.toLowerCase().includes(nomSeul) || nomSeul.includes(p.nom.toLowerCase()));
+      if (candidats.length === 0) {
+        return { erreur: `Produit "${produitNom}" introuvable. Vérifiez le nom du modèle et la couleur.` };
+      }
+      const nomsUniques = [...new Set(candidats.map(c => c.nom))];
+      if (nomsUniques.length > 1) {
+        return { erreur: `⚠️ "${produitNom}" est ambigu, plusieurs modèles possibles : ${nomsUniques.join(", ")}. Précisez le nom exact.` };
+      }
+      const variantesCandidat = candidats.filter(c => c.nom === nomsUniques[0]);
+      if (variantesCandidat.length === 1) {
+        produit = variantesCandidat[0];
+      } else {
+        const couleursListe = variantesCandidat.map(v => v.couleur).join(", ");
+        return { erreur: `⚠️ Le modèle "${nomsUniques[0]}" a plusieurs couleurs (${couleursListe}). Précisez la couleur exacte.` };
+      }
+    }
   }
+
   if (!produit) return { erreur: `Produit "${produitNom}" introuvable` };
-  if (produit.stock < qte) return { erreur: `Stock insuffisant pour ${produit.nom} (dispo: ${produit.stock})` };
+  if (produit.stock < qte) return { erreur: `Stock insuffisant pour ${produit.nom}${produit.couleur?' — '+produit.couleur:''} (dispo: ${produit.stock})` };
 
   const client = clientInfo ? trouverOuCreerClient(clientInfo) : null;
 
-  // Appliquer réduction fidélité si éligible
+  // Détecter si c'est une vente revendeur (prix override = prix revendeur du produit)
+  const estVenteRevendeur = prixVenteOverride !== null && produit.prix_revendeur && prixVenteOverride === produit.prix_revendeur;
+
+  // Appliquer réduction fidélité si éligible — JAMAIS sur une vente revendeur
+  // (le prix revendeur est déjà un prix final négocié, pas de cumul de réduction)
   let prixVente = prixVenteOverride || produit.prix_vente;
   let reductionAppliquee = false;
   let montantAvant = 0;
   let montantReduction = 0;
 
-  if (client && clientEligibleReduction(client)) {
+  if (!estVenteRevendeur && client && clientEligibleReduction(client)) {
     montantAvant = parseFloat((prixVente * qte).toFixed(0));
     prixVente = appliquerReduction(prixVente, client.nb_achats);
     reductionAppliquee = true;
@@ -907,7 +993,7 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     prix_achat_unitaire: produit.prix_achat,
     prix_vente_unitaire: prixVente,
     prix_vente_normal: produit.prix_vente, // toujours le prix catalogue pour l'email
-    is_revendeur: prixVenteOverride !== null && prixVenteOverride === produit.prix_revendeur,
+    is_revendeur: estVenteRevendeur,
     quantite: qte,
     montant_total,
     marge_totale,
@@ -923,14 +1009,22 @@ async function enregistrerVenteComplete(produitNom, qte, clientInfo, prixVenteOv
     note: `Vente — ${vente.client_nom}`, date: new Date().toISOString(),
   });
 
-  // Mettre à jour compteur fidélité client
-  if (client) {
+  // Mettre à jour compteur fidélité client — JAMAIS pour une vente revendeur
+  if (client && !estVenteRevendeur) {
     client.nb_achats += 1;
     client.ca_total += montant_total;
     client.derniere_visite = new Date().toISOString();
+    await envoyerVersSheets("mettre_a_jour_client", {
+      id: client.id,
+      nb_achats: client.nb_achats,
+      ca_total: client.ca_total
+    });
 
     // Email géré uniquement par envoyerEmailsApresVente dans finaliserVente
     // (supprimé ici pour éviter les doublons)
+  } else if (client && estVenteRevendeur) {
+    // Vente revendeur : on met juste à jour la dernière visite, jamais le compteur fidélité
+    client.derniere_visite = new Date().toISOString();
   }
 
   envoyerVersSheets("nouvelle_vente", {
@@ -2014,6 +2108,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (session.etape === "supprimer_vente_confirm") {
     if (text !== "✅ Confirmer") { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() }); }
+    await chargerDepuisSheets(); // recharger pour avoir les données les plus à jour avant modification
     const vente = session.data.vente;
     // Remettre le stock
     const produit = db.produits.find(p => p.nom === vente.produit_nom && (!vente.produit_couleur || p.couleur === vente.produit_couleur));
@@ -2024,14 +2119,36 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     // Supprimer la vente
     db.ventes = db.ventes.filter(v => v.id !== vente.id);
     await envoyerVersSheets("supprimer_vente", { id: vente.id });
-    // Mettre à jour nb_achats du client
-    const client = db.clients.find(c => c.nom === vente.client_nom);
-    if (client && client.nb_achats > 0) {
-      client.nb_achats -= 1;
-      client.ca_total = Math.max(0, client.ca_total - vente.montant_total);
+
+    // Annuler complètement l'effet de la vente sur le client (compteur ET fidélité)
+    // Une vente revendeur n'avait jamais touché le compteur fidélité → ne pas le décrémenter
+    let messageCarte = "";
+    let messageClient = "";
+    const client = db.clients.find(c => c.nom.trim().toLowerCase() === (vente.client_nom || "").trim().toLowerCase());
+    if (client && !vente.is_revendeur) {
+      const ancienNb = client.nb_achats;
+      client.nb_achats = Math.max(0, (client.nb_achats || 0) - 1);
+      client.ca_total = Math.max(0, (client.ca_total || 0) - vente.montant_total);
+      // Si c'était son 1er achat (maintenant 0) → annuler aussi l'envoi de carte fidélité
+      if (client.nb_achats === 0 && client.carte_envoyee) {
+        client.carte_envoyee = false;
+        messageCarte = "\n⚠️ Statut carte fidélité réinitialisé (c'était son 1er achat).";
+      }
+      // Sauvegarder dans Sheets
+      await envoyerVersSheets("mettre_a_jour_client", {
+        id: client.id,
+        nb_achats: client.nb_achats,
+        ca_total: client.ca_total,
+        carte_envoyee: client.carte_envoyee
+      });
+      messageClient = `\n👤 ${client.nom} : ${ancienNb} → ${client.nb_achats} achat(s)`;
+    } else if (client && vente.is_revendeur) {
+      messageClient = `\n🤝 Vente revendeur — compteur fidélité de ${client.nom} non affecté.`;
+    } else if (vente.client_nom && vente.client_nom !== "Anonyme") {
+      messageClient = `\n⚠️ Client "${vente.client_nom}" non retrouvé — compteur non mis à jour.`;
     }
     session.etape = null; session.data = {};
-    return sendMessage(chatId, `✅ Vente supprimée${produit ? ' et stock restauré' : ''}.`, { reply_markup: menuVentes() });
+    return sendMessage(chatId, `✅ Vente supprimée${produit ? ' et stock restauré' : ''}.${messageClient}${messageCarte}`, { reply_markup: menuVentes() });
   }
 
   // ══════════════════════════════════════════
@@ -2092,27 +2209,55 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     }
     session.data.produit = variantes[0]; session.etape = "modifier_produit_champ";
     const p = variantes[0];
-    return sendMessage(chatId, `✏️ *${p.nom}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente} | Stock: ${p.stock}\n\nQue modifier ?`,
-      { reply_markup: { keyboard: [["💵 Prix achat","💰 Prix vente"],["📦 Stock","🎨 Couleur"],["🔬 Caractéristiques"],["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `✏️ *${p.nom}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente}${p.prix_revendeur?' | 🤝 Rev: '+p.prix_revendeur:''} | Stock: ${p.stock}\n\nQue modifier ?`,
+      { reply_markup: { keyboard: [["📛 Nom","🎨 Couleur"],["💵 Prix achat","💰 Prix vente"],["🤝 Prix revendeur","📦 Stock"],["🏷️ Catégorie","🔬 Caractéristiques"],["📷 Photo"],["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_produit_couleur") {
     const couleur = text.replace("✏️ ", "").trim();
     const p = db.produits.find(p => p.nom === session.data.nomModele && p.couleur === couleur);
     if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuProduits() });
     session.data.produit = p; session.etape = "modifier_produit_champ";
-    return sendMessage(chatId, `✏️ *${p.nom} — ${p.couleur}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente} | Stock: ${p.stock}\n\nQue modifier ?`,
-      { reply_markup: { keyboard: [["💵 Prix achat","💰 Prix vente"],["📦 Stock","🎨 Couleur"],["🔬 Caractéristiques"],["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `✏️ *${p.nom} — ${p.couleur}*\n💵 Achat: ${p.prix_achat} | Vente: ${p.prix_vente}${p.prix_revendeur?' | 🤝 Rev: '+p.prix_revendeur:''} | Stock: ${p.stock}\n\nQue modifier ?`,
+      { reply_markup: { keyboard: [["📛 Nom","🎨 Couleur"],["💵 Prix achat","💰 Prix vente"],["🤝 Prix revendeur","📦 Stock"],["🏷️ Catégorie","🔬 Caractéristiques"],["📷 Photo"],["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_produit_champ") {
-    const cm = {"💵 Prix achat":"prix_achat","💰 Prix vente":"prix_vente","📦 Stock":"stock","🎨 Couleur":"couleur","🔬 Caractéristiques":"caracteristiques"};
+    const cm = {"📛 Nom":"nom","💵 Prix achat":"prix_achat","💰 Prix vente":"prix_vente","🤝 Prix revendeur":"prix_revendeur","📦 Stock":"stock","🎨 Couleur":"couleur","🏷️ Catégorie":"categorie","🔬 Caractéristiques":"caracteristiques","📷 Photo":"photo"};
     if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuProduits() }); }
-    session.data.champ = cm[text]; session.etape = "modifier_produit_valeur";
+    session.data.champ = cm[text];
+    if (cm[text] === "photo") {
+      session.etape = "modifier_produit_photo";
+      return sendMessage(chatId, `📷 Envoyez la nouvelle photo :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
+    if (cm[text] === "prix_revendeur") {
+      session.etape = "modifier_produit_valeur";
+      return sendMessage(chatId, `✏️ Nouveau prix revendeur (ou "skip" pour aucun) :`, { reply_markup: { keyboard: [["skip"],["❌ Annuler"]], resize_keyboard: true } });
+    }
+    session.etape = "modifier_produit_valeur";
     return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "modifier_produit_photo") {
+    const p = session.data.produit;
+    if (!msg.photo) return sendMessage(chatId, `⚠️ Envoyez une photo (pas du texte).`);
+    const photoId = msg.photo[msg.photo.length - 1].file_id;
+    const photoUrl = await telechargerEtUploaderPhoto(photoId, p.nom);
+    if (!photoUrl) return sendMessage(chatId, `❌ Erreur upload photo.`);
+    p.photo_url = photoUrl;
+    await envoyerVersSheets("modifier_produit", { id: p.id, nom: p.nom, couleur: p.couleur||"", champ: "photo_url", valeur: photoUrl });
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ Photo de *${p.nom}${p.couleur?' — '+p.couleur:''}* mise à jour !`, { reply_markup: menuProduits() });
   }
   if (session.etape === "modifier_produit_valeur") {
     const p = session.data.produit; const champ = session.data.champ;
-    const val = ['prix_achat','prix_vente','stock'].includes(champ) ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
-    if (['prix_achat','prix_vente','stock'].includes(champ) && isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
+    let val;
+    if (champ === "prix_revendeur" && text === "skip") {
+      val = null;
+    } else if (['prix_achat','prix_vente','stock','prix_revendeur'].includes(champ)) {
+      val = parseFloat(text.replace(/[^0-9.]/g,''));
+      if (isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
+    } else {
+      val = text.trim();
+    }
     p[champ] = val;
     await envoyerVersSheets("modifier_produit", { id: p.id, nom: p.nom, couleur: p.couleur||"", champ, valeur: val });
     session.etape = null; session.data = {};
@@ -2170,20 +2315,32 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     if (!charge) return sendMessage(chatId, `⚠️ Non trouvé.`);
     session.data.charge = charge; session.etape = "modifier_charge_champ";
     return sendMessage(chatId, `✏️ *${charge.label}* — ${charge.montant} FCFA\nQue modifier ?`,
-      { reply_markup: { keyboard: [["📛 Libellé","💰 Montant"],["🏷️ Catégorie"],["❌ Annuler"]], resize_keyboard: true } });
+      { reply_markup: { keyboard: [["📛 Libellé","💰 Montant"],["🏷️ Catégorie","📅 Date"],["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_charge_champ") {
-    const cm = {"📛 Libellé":"label","💰 Montant":"montant","🏷️ Catégorie":"categorie"};
+    const cm = {"📛 Libellé":"label","💰 Montant":"montant","🏷️ Catégorie":"categorie","📅 Date":"date"};
     if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`); }
     session.data.champ = cm[text]; session.etape = "modifier_charge_valeur";
-    return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    const msgDemande = cm[text] === "date" ? `📅 Nouvelle date (ex: 15/06/2026) :` : `✏️ Nouvelle valeur :`;
+    return sendMessage(chatId, msgDemande, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_charge_valeur") {
     const charge = session.data.charge; const champ = session.data.champ;
-    const val = champ === "montant" ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
-    if (champ === "montant" && isNaN(val)) return sendMessage(chatId, `⚠️ Montant invalide.`);
+    let val;
+    if (champ === "montant") {
+      val = parseFloat(text.replace(/[^0-9.]/g,''));
+      if (isNaN(val)) return sendMessage(chatId, `⚠️ Montant invalide.`);
+    } else if (champ === "date") {
+      const parts = text.trim().split(' ');
+      const [j,m,a] = parts[0].split('/');
+      const t = parts[1] || "00:00:00";
+      val = new Date(`${a}-${m}-${j}T${t}+01:00`).toISOString();
+      if (isNaN(new Date(val).getTime())) return sendMessage(chatId, `⚠️ Date invalide (ex: 15/06/2026) :`);
+    } else {
+      val = text.trim();
+    }
     charge[champ] = val;
-    await envoyerVersSheets("modifier_charge", { id: charge.id, label: charge.label, montant: charge.montant, categorie: charge.categorie });
+    await envoyerVersSheets("modifier_charge", { id: charge.id, label: charge.label, montant: charge.montant, categorie: charge.categorie, date: charge.date });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ Charge *${charge.label}* mise à jour !`);
   }
@@ -2212,10 +2369,10 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     if (!vente) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuVentes() });
     session.data.vente = vente; session.etape = "modifier_vente_champ";
     return sendMessage(chatId, `✏️ *${vente.produit_nom}* | ${vente.client_nom} | ${vente.montant_total} FCFA\nQue modifier ?`,
-      { reply_markup: { keyboard: [["👤 Client","💰 Prix"],["📦 Quantité"],["❌ Annuler"]], resize_keyboard: true } });
+      { reply_markup: { keyboard: [["👤 Client","📦 Produit"],["💰 Prix","🔢 Quantité"],["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "modifier_vente_champ") {
-    const cm = {"👤 Client":"client_nom","💰 Prix":"montant_total","📦 Quantité":"quantite"};
+    const cm = {"👤 Client":"client_nom","📦 Produit":"produit_nom","💰 Prix":"montant_total","🔢 Quantité":"quantite"};
     if (!cm[text]) { session.etape = null; session.data = {}; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuVentes() }); }
     session.data.champ = cm[text]; session.etape = "modifier_vente_valeur";
     return sendMessage(chatId, `✏️ Nouvelle valeur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
@@ -2225,7 +2382,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     const val = ['montant_total','quantite'].includes(champ) ? parseFloat(text.replace(/[^0-9.]/g,'')) : text.trim();
     if (['montant_total','quantite'].includes(champ) && isNaN(val)) return sendMessage(chatId, `⚠️ Valeur invalide.`);
     vente[champ] = val;
-    await envoyerVersSheets("modifier_vente", { id: vente.id, client: vente.client_nom, montant_total: vente.montant_total, quantite: vente.quantite });
+    await envoyerVersSheets("modifier_vente", { id: vente.id, client: vente.client_nom, produit: vente.produit_nom, montant_total: vente.montant_total, quantite: vente.quantite });
     session.etape = null; session.data = {};
     return sendMessage(chatId, `✅ Vente mise à jour !`, { reply_markup: menuVentes() });
   }
@@ -2284,7 +2441,8 @@ Si prix non visible mets 0. Si plusieurs ventes, plusieurs objets.` },
             if (v.email && !existe.email) existe.email = v.email;
           }
         }
-        const result = await enregistrerVenteComplete(v.produit, v.quantite || 1, v.client || null, v.prix || null);
+        const nomComplet1 = v.couleur ? `${v.produit} ${v.couleur}` : v.produit;
+        const result = await enregistrerVenteComplete(nomComplet1, v.quantite || 1, v.client || null, v.prix || null);
         if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
         else {
           // Envoi email centralisé
@@ -3078,7 +3236,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     await sendMessage(chatId, `⏳ Analyse des ventes en cours...`);
 
     // Utiliser GPT-4o pour extraire les ventes dans n'importe quel format
-    const produitsDispo = db.produits.map(p => p.nom).join(", ");
+    const produitsDispo = db.produits.map(p => p.nom + (p.couleur ? " " + p.couleur : "")).join(", ");
     const clientsDispo = db.clients.map(c => c.nom).join(", ");
 
     let ventesExtraites;
@@ -3092,16 +3250,23 @@ Produits disponibles : ${produitsDispo || "aucun"}
 Clients connus : ${clientsDispo || "aucun"}
 
 Extrait toutes les ventes de ce texte : "${text}"\n
+Le texte peut être écrit sur plusieurs lignes et dans n'importe quel ordre. Une information peut être sur une ligne séparée (ex: l'email du client tout seul sur sa propre ligne) — elle appartient quand même à la même vente si une seule vente est décrite.
+
 Règles :
-- Trouve le produit (cherche le nom le plus proche dans la liste des produits)
+- La liste "Produits disponibles" contient "Nom Couleur" pour chaque variante (ex: "Impérial Noir", "Impérial Léopard")
+- Trouve le produit ET sa couleur exacte en te basant sur cette liste — cherche la meilleure correspondance nom+couleur, ne devine jamais une couleur si elle n'est pas mentionnée ou ne correspond pas
+- Si une couleur est mentionnée dans le texte (ex: "léopard", "noir", "bleu"), utilise EXACTEMENT cette couleur si elle existe dans la liste, ne la remplace jamais par une autre couleur
+- Un nombre seul en début de ligne ou de phrase est très probablement la QUANTITÉ, pas un nom (défaut = 1 si absent)
+- Le nom du client est généralement un mot ou groupe de mots en lettres (prénom et/ou nom), qui n'est ni un produit, ni une couleur, ni un nombre, ni un email, ni un numéro de téléphone. Ne le confonds jamais avec le nom du produit.
+- Si une adresse email apparaît n'importe où dans le texte (même sur sa propre ligne) et qu'une seule vente est décrite, cette adresse appartient à cette vente
+- Si un numéro de téléphone apparaît n'importe où dans le texte et qu'une seule vente est décrite, ce numéro appartient à cette vente
 - Trouve la quantité (nombre, défaut = 1)
-- Trouve le nom du client si mentionné
+- Trouve le nom du client s'il est mentionné — ne le laisse jamais null si un nom de personne identifiable apparaît dans le texte
 - Trouve le téléphone du client si mentionné (numéro)
 - Trouve l'email du client si mentionné
-- Le format peut être dans n'importe quel ordre et en langage naturel
 
 Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
-[{"produit":"nom exact du produit","quantite":1,"client":"nom ou null","telephone":"numéro ou null","email":"email ou null"}]
+[{"produit":"nom exact du modèle","couleur":"couleur exacte ou null si pas de couleur","quantite":1,"client":"nom ou null","telephone":"numéro ou null","email":"email ou null"}]
 Si plusieurs ventes, mets plusieurs objets dans le tableau.`
         }],
         max_tokens: 300,
@@ -3113,6 +3278,20 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
     } catch (err) {
       session.etape = null; session.data = {};
       return sendMessage(chatId, `❌ Je n'ai pas compris le texte. Réessayez avec un format plus clair.\nEx: 'Lunettes 1 Karim'`, { reply_markup: menuVentes() });
+    }
+
+    // Sécurité: si le texte contient un email/téléphone mais qu'aucune vente n'a de client lié → alerter
+    const emailDansTexte = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const telDansTexte = text.match(/\b\d{8,}\b/);
+    if ((emailDansTexte || telDansTexte) && ventesExtraites.length > 0) {
+      const auMoinsUnSansClient = ventesExtraites.some(v => !v.client && !v.email && !v.telephone);
+      if (auMoinsUnSansClient) {
+        session.etape = null; session.data = {};
+        return sendMessage(chatId,
+          `⚠️ *Attention* : j'ai détecté ${emailDansTexte ? 'un email' : 'un numéro'} (${emailDansTexte ? emailDansTexte[0] : telDansTexte[0]}) dans votre message, mais je n'arrive pas à le lier avec certitude à un client précis.\n\nPour éviter toute erreur, rien n'a été enregistré.\n\n👉 Réessayez en précisant clairement : *produit quantité Nom_Client*, puis email/tel sur la même ligne ou juste après.\nEx: \`Impérial Noir 1 Boris boris@gmail.com\``,
+          { reply_markup: menuVentes() }
+        );
+      }
     }
 
     let resultMsg = "", totalCA = 0, nbOk = 0;
@@ -3139,7 +3318,8 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
         }
       }
 
-      const result = await enregistrerVenteComplete(v.produit, v.quantite, v.client || null);
+      const nomComplet2 = v.couleur ? `${v.produit} ${v.couleur}` : v.produit;
+      const result = await enregistrerVenteComplete(nomComplet2, v.quantite, v.client || null);
       if (result.erreur) { resultMsg += `❌ ${result.erreur}\n`; }
       else {
         // Envoi email centralisé
