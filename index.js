@@ -2540,7 +2540,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     }
     // Choisir le client
     const vrais = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
-    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["❌ Annuler"]);
+    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["✏️ Nouveau prospect"], ["❌ Annuler"]);
     return sendMessage(chatId, `👤 Quel client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
@@ -2549,11 +2549,16 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     session.data.produit_couleur = couleur;
     session.etape = "attente_client";
     const vrais = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
-    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["❌ Annuler"]);
+    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["✏️ Nouveau prospect"], ["❌ Annuler"]);
     return sendMessage(chatId, `👤 Quel client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   if (session.etape === "attente_client") {
+    // Nouveau prospect (pas encore client)
+    if (text === "✏️ Nouveau prospect") {
+      session.etape = "attente_prospect_nom";
+      return sendMessage(chatId, `👤 Nom et prénom du prospect :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
     const nomClient = text.replace("👤 ", "").trim();
     const client = db.clients.find(c => c.nom === nomClient);
     if (!client) return sendMessage(chatId, `⚠️ Client non trouvé.`, { reply_markup: menuClients() });
@@ -2650,6 +2655,63 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     const envoye = await envoyerEmailDisponibilite(client, p);
     session.etape = null; session.data = {};
     return sendMessage(chatId, envoye ? `✅ Email envoyé à *${nomClient}* !` : `❌ Erreur envoi email.`, { reply_markup: menuProduits() });
+  }
+
+
+  // ── SAISIE PROSPECT LISTE D'ATTENTE ──
+  if (session.etape === "attente_prospect_nom") {
+    session.data.prospect_nom = text.trim();
+    session.etape = "attente_prospect_tel";
+    return sendMessage(chatId, `📱 Numéro de téléphone (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "attente_prospect_tel") {
+    session.data.prospect_tel = text === "skip" ? "" : text.trim();
+    session.etape = "attente_prospect_email";
+    return sendMessage(chatId, `📧 Email (ou "skip") :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "attente_prospect_email") {
+    session.data.prospect_email = text === "skip" ? "" : text.trim().toLowerCase();
+    // Vérifier doublon dans liste d'attente
+    const dejaDans = (db.listeAttente || []).find(e =>
+      e.client_nom === session.data.prospect_nom &&
+      e.produit_nom === session.data.produit_nom &&
+      e.produit_couleur === session.data.produit_couleur
+    );
+    if (dejaDans) {
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `⚠️ *${session.data.prospect_nom}* est déjà en attente pour ce produit.`, { reply_markup: menuClients() });
+    }
+    if (!db.listeAttente) db.listeAttente = [];
+    const entree = {
+      id: genId(),
+      client_nom: session.data.prospect_nom,
+      client_tel: session.data.prospect_tel || "",
+      client_email: session.data.prospect_email || "",
+      produit_nom: session.data.produit_nom,
+      produit_couleur: session.data.produit_couleur || "",
+      chatId,
+      date: new Date().toISOString(),
+      prospect: true // pas un vrai client enregistré
+    };
+    db.listeAttente.push(entree);
+    // Sauvegarder dans Sheets (liste attente seulement, PAS dans clients)
+    await envoyerVersSheets("liste_attente_ajouter", {
+      id: entree.id,
+      client: entree.client_nom,
+      telephone: entree.client_tel,
+      email: entree.client_email,
+      produit: entree.produit_nom,
+      couleur: entree.produit_couleur,
+      date: new Date().toLocaleString("fr-FR", {timeZone:"Africa/Porto-Novo"})
+    });
+    const prodLabel = `${entree.produit_nom}${entree.produit_couleur ? ' — '+entree.produit_couleur : ''}`;
+    session.etape = null; session.data = {};
+    return sendMessage(chatId,
+      `✅ *${entree.client_nom}* ajouté en liste d'attente pour *${prodLabel}* !\n📱 ${entree.client_tel||'—'} | 📧 ${entree.client_email||'—'}\n\n_Note: pas de fiche client créée._`,
+      { reply_markup: menuClients() }
+    );
   }
 
   // ══ IA ══
