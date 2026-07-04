@@ -1303,6 +1303,21 @@ function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], 
 function menuIA() { return { keyboard: [["📊 Analyse rentabilité"], ["🚨 Produits à restock"], ["💡 Conseils CA"], ["❓ Question libre"], ["🏠 Menu"]], resize_keyboard: true }; }
 
 // ─────────────────────────────────────────
+// SAUVEGARDE ÉTAT POUR RETOUR ARRIÈRE
+// ─────────────────────────────────────────
+function sauvegarderEtape(session, etape, data, keyboardMsg) {
+  if (!session.historique) session.historique = [];
+  // Limiter à 10 étapes en mémoire
+  if (session.historique.length >= 10) session.historique.shift();
+  session.historique.push({
+    etape: etape,
+    data: JSON.parse(JSON.stringify(data || {})),
+    keyboardMsg: keyboardMsg || null
+  });
+}
+
+
+// ─────────────────────────────────────────
 // WEBHOOK TELEGRAM
 // ─────────────────────────────────────────
 app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
@@ -1323,8 +1338,22 @@ app.post(`/webhook/${TELEGRAM_TOKEN}`, async (req, res) => {
   const session = sessions[chatId];
 
   if (text === "❌ Annuler" || text === "🏠 Menu") {
-    session.etape = null; session.data = {};
+    session.etape = null; session.data = {}; session.historique = [];
     return sendMessage(chatId, `🏠 *Menu principal*`, { reply_markup: menuPrincipal() });
+  }
+
+  // ── RETOUR ARRIÈRE UNIVERSEL ──
+  if (text === "⬅️ Retour") {
+    if (!session.historique || session.historique.length === 0) {
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `🏠`, { reply_markup: menuPrincipal() });
+    }
+    const precedent = session.historique.pop();
+    session.etape = precedent.etape;
+    session.data = JSON.parse(JSON.stringify(precedent.data || {}));
+    return sendMessage(chatId, `⬅️ Retour en arrière — recommencez votre choix :`,
+      precedent.keyboardMsg || { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }
+    );
   }
 
   if (text === "/start") {
@@ -3092,7 +3121,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       return sendMessage(chatId, `✏️ Entrez la couleur :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
     }
     session.etape = "produit_caracteristiques";
-    return sendMessage(chatId, `🔬 *Caractéristiques :*`, { reply_markup: { keyboard: [["🔵 Anti-lumière bleue"],["☀️ Photochromic"],["✨ Les deux"],["➖ Aucune"],["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `🔬 *Caractéristiques :*`, { reply_markup: { keyboard: [["🔵 Anti-lumière bleue"],["☀️ Photochromic"],["✨ Les deux"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } });
   }
 
   if (session.etape === "produit_couleur_saisie") {
@@ -3295,9 +3324,12 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       return sendMessage(chatId, `📦 *${variantes[0].nom}*\n🗃️ Stock: ${variantes[0].stock}\n\n🔢 Quantité ?`, { reply_markup: { keyboard: [["1"],["2"],["3"],["❌ Annuler"]], resize_keyboard: true } });
     }
     // Afficher les couleurs disponibles
+    sauvegarderEtape(session, "vente_modele", session.data,
+      { reply_markup: { keyboard: [...[...new Set(db.produits.filter(p=>p.stock>0).map(p=>p.nom))].sort((a,b)=>a.localeCompare(b,'fr',{sensitivity:'base'})).map(n=>[`📦 ${n}`]), ["❌ Annuler"]], resize_keyboard: true } }
+    );
     session.data.nomModele = nomModele;
     session.etape = "vente_produit";
-    const b = variantes.map(p => [`🎨 ${p.couleur} (${p.stock} dispo)`]); b.push(["❌ Annuler"]);
+    const b = variantes.map(p => [`🎨 ${p.couleur} (${p.stock} dispo)`]); b.push(["⬅️ Retour"], ["❌ Annuler"]);
     return sendMessage(chatId, `🎨 Couleur de *${nomModele}* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
@@ -3308,20 +3340,26 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     const p = db.produits.find(p => p.nom === nomModele && p.couleur === couleurChoisie && p.stock > 0);
     if (!p) return sendMessage(chatId, `⚠️ Non trouvé.`);
     if (p.stock === 0) return sendMessage(chatId, `🔴 Stock épuisé !`);
+    sauvegarderEtape(session, "vente_produit", {...session.data},
+      { reply_markup: { keyboard: [...db.produits.filter(pr=>pr.nom===session.data.nomModele&&pr.stock>0).map(pr=>[`🎨 ${pr.couleur} (${pr.stock} dispo)`]), ["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
+    );
     session.data.produit = p; session.etape = "vente_quantite";
-    return sendMessage(chatId, `🔢 Quantité ? (dispo: ${p.stock})`, { reply_markup: { keyboard: [["1"], ["2"], ["3"], ["5"], ["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `🔢 Quantité ? (dispo: ${p.stock})`, { reply_markup: { keyboard: [["1"], ["2"], ["3"], ["5"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_quantite") {
     const qte = parseInt(text); if (isNaN(qte) || qte < 1) return sendMessage(chatId, `⚠️ Invalide.`);
     if (qte > session.data.produit.stock) return sendMessage(chatId, `⚠️ Max: ${session.data.produit.stock}`);
-    session.data.quantite = qte;
     const p = session.data.produit;
+    sauvegarderEtape(session, "vente_quantite", session.data,
+      { reply_markup: { keyboard: [["1"],["2"],["3"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
+    );
+    session.data.quantite = qte;
     // Si le produit a un prix revendeur → proposer le choix
     if (p.prix_revendeur && p.prix_revendeur > 0) {
       session.etape = "vente_type_client";
       return sendMessage(chatId,
         `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n\n👤 Type de vente :`,
-        { reply_markup: { keyboard: [["🛒 Client normal","🤝 Revendeur"],["❌ Annuler"]], resize_keyboard: true } }
+        { reply_markup: { keyboard: [["🛒 Client normal","🤝 Revendeur"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
       );
     }
     // Sinon → réduction directement
@@ -3329,7 +3367,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     session.etape = "vente_reduction_manuelle";
     return sendMessage(chatId,
       `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
-      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
     );
   }
 
@@ -3446,7 +3484,9 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   // ── GESTION PANIER ──
   if (session.etape === "vente_panier") {
     if (text === "➕ Ajouter un article") {
-      // Retourner au choix modèle (exclure les produits déjà au max de stock)
+      // Réinitialiser les données de l'article précédent (garder seulement le panier)
+      const panierSauvegarde = session.data.panier;
+      session.data = { panier: panierSauvegarde };
       const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))].sort((a,b) => a.localeCompare(b, "fr", {sensitivity: "base"}));
       session.etape = "vente_modele";
       const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
@@ -3476,7 +3516,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     // Nouveau client → collecter les infos
     if (clientNom === "➕ Nouveau client") {
       session.etape = "vente_nouveau_client_nom";
-      return sendMessage(chatId, `👤 *Nouveau client*\n\nNom complet :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+      return sendMessage(chatId, `👤 *Nouveau client*\n\nNom complet :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
     }
 
     // Afficher statut fidélité AVANT d'enregistrer
@@ -3511,7 +3551,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "vente_nouveau_client_nom") {
     session.data.nouveau_client = { nom: text.trim() };
     session.etape = "vente_nouveau_client_tel";
-    return sendMessage(chatId, `📱 Numéro de téléphone du client :\n_(obligatoire pour la carte fidélité)_`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `📱 Numéro de téléphone du client :\n_(obligatoire pour la carte fidélité)_`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_nouveau_client_tel") {
     const telClean = text.trim().replace(/\s/g, "");
@@ -3531,7 +3571,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     }
     session.data.nouveau_client.telephone = telClean;
     session.etape = "vente_nouveau_client_email";
-    return sendMessage(chatId, `📧 Email du client :\n_(pour l'envoi de la carte fidélité)_`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `📧 Email du client :\n_(pour l'envoi de la carte fidélité)_`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_nouveau_client_email") {
     // Valider l'email
