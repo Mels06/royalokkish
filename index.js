@@ -404,6 +404,56 @@ let calendar = null;
 let driveClient = null;
 const DRIVE_FOLDER_ID = process.env.DRIVE_FOLDER_ID || "1fAYhULRDW7fPxUXkMWgMH1QMJhXvzSq5";
 
+// ─────────────────────────────────────────
+// EMAIL DISPONIBILITÉ PRODUIT (liste d'attente)
+// ─────────────────────────────────────────
+async function envoyerEmailDisponibilite(client, produit) {
+  if (!emailConfig || !client.email) return false;
+  try {
+    const prenom = client.nom.split(' ')[0];
+    const prodLabel = `${produit.nom}${produit.couleur ? ' — '+produit.couleur : ''}`;
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+      *{margin:0;padding:0;box-sizing:border-box;}body{font-family:Arial,sans-serif;background:#f4f4f4;padding:20px;color:#333;}
+      .w{max-width:600px;margin:0 auto;background:#fff;}
+      .h{background:#0a0a0a;padding:30px;text-align:center;}
+      .logo{width:60px;height:60px;object-fit:contain;margin-bottom:10px;}
+      .brand{color:#C9A84C;font-size:18px;font-weight:bold;letter-spacing:4px;text-transform:uppercase;}
+      .sl{color:#555;font-size:10px;letter-spacing:2px;font-style:italic;margin-top:4px;}
+      .b{background:#fff;padding:32px 40px;}
+      .sal{font-size:18px;color:#111;font-weight:bold;margin-bottom:4px;}
+      .st{color:#C9A84C;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-style:italic;margin-bottom:20px;}
+      .enc{background:#0a0a0a;border-radius:8px;padding:24px;margin:20px 0;text-align:center;}
+      .et{color:#C9A84C;font-size:11px;font-weight:bold;letter-spacing:2px;text-transform:uppercase;margin-bottom:16px;}
+      .tx{font-size:14px;color:#444;line-height:1.8;margin-bottom:16px;}
+      .sig{border-top:1px solid #eee;padding-top:20px;margin-top:20px;font-size:13px;color:#666;line-height:2;}
+      .sig strong{color:#111;font-size:14px;}.sig em{color:#C9A84C;font-size:12px;}
+      .f{background:#0a0a0a;padding:20px;text-align:center;}
+      .fb{color:#C9A84C;font-size:11px;letter-spacing:4px;text-transform:uppercase;margin-bottom:8px;}
+      .fc{color:#555;font-size:11px;line-height:2;}
+    </style></head>
+    <body><div class="w">
+      <div class="h"><img class="logo" src="${LOGO_DRIVE_URL}" alt="RT"><div class="brand">Royal Tchitchi</div><div class="sl">Une couronne pour son altesse</div></div>
+      <div class="b">
+        <div class="sal">Votre Altesse, ${prenom},</div>
+        <div class="st">Votre produit est de retour !</div>
+        <div class="tx">Excellente nouvelle ! Le produit que vous attendiez est à nouveau disponible chez Royal Tchitchi.</div>
+        <div class="enc">
+          <div class="et">✨ Disponible maintenant</div>
+          <div style="color:#C9A84C;font-size:22px;font-weight:bold;margin:12px 0;">${prodLabel}</div>
+          ${produit.photo_url && produit.photo_url.startsWith('http') ? `<img src="${produit.photo_url}" width="120" height="120" style="object-fit:contain;border-radius:8px;border:1px solid #C9A84C;background:#111;margin-top:8px;">` : ''}
+          <div style="color:#888;font-size:13px;margin-top:12px;">Stock disponible : <strong style="color:#fff;">${produit.stock} unité(s)</strong></div>
+        </div>
+        <div class="tx">Dépêchez-vous — les stocks sont limités ! Contactez-nous pour réserver votre paire.</div>
+        <div class="sig">Avec toute notre considération royale,<br><br><strong>L'équipe Royal Tchitchi</strong><br><em>Une couronne pour son altesse</em></div>
+      </div>
+      <div class="f"><div class="fb">Royal Tchitchi</div><div class="fc">📱 +229 0197249171<br>📧 contactroyaltchitchi@gmail.com</div><div style="color:#222;font-size:10px;font-style:italic;margin-top:8px;">— Une couronne pour son altesse —</div></div>
+    </div></body></html>`;
+    const ok = await envoyerEmail(client.email, `✨ ${prodLabel} est de retour — Royal Tchitchi`, html);
+    return ok;
+  } catch (err) { console.error("Erreur email disponibilité:", err.message); return false; }
+}
+
+
 function initGoogleCalendar() {
   try {
     const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT);
@@ -560,6 +610,7 @@ let db = {
   historique_stock: [],
   agenda: [],
   relances: [],   // { id, client_nom, client_tel, note, date, chatId, rappels_envoyes, statut }
+  listeAttente: [], // { id, client_nom, produit_nom, produit_couleur, chatId, date }
   livraisons: [], // { id, client_nom, client_tel, produit, note, date, chatId, rappels_envoyes, statut }
 };
 
@@ -1245,7 +1296,7 @@ function menuPrincipal() {
   return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🤖 IA"]], resize_keyboard: true };
 }
 function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["✏️ Modifier produit", "🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["⏳ Liste d'attente"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["✏️ Modifier vente", "🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["✏️ Modifier événement", "🗑️ Supprimer événement"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], ["🏆 Top clients"], ["🔄 Clients récurrents", "😴 Clients inactifs"], ["📧 Renvoyer carte fidélité"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -2422,6 +2473,185 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     );
   }
 
+
+  // ══════════════════════════════════════════
+  // LISTE D'ATTENTE
+  // ══════════════════════════════════════════
+  if (text === "⏳ Liste d'attente") {
+    await chargerDepuisSheets();
+    session.etape = "attente_action"; session.data = {};
+    const nbAttente = (db.listeAttente || []).length;
+    return sendMessage(chatId, `⏳ *Liste d'attente*\n${nbAttente > 0 ? `📋 ${nbAttente} client(s) en attente` : 'Aucun client en attente'}\n\nQue faire ?`, {
+      reply_markup: { keyboard: [["➕ Ajouter en attente"], ["📋 Voir liste d'attente"], ["🗑️ Retirer de l'attente"], ["🏠 Menu"]], resize_keyboard: true }
+    });
+  }
+
+  if (session.etape === "attente_action") {
+    if (text === "➕ Ajouter en attente") {
+      // Choisir le produit (modèle)
+      const nomsUniques = [...new Set(db.produits.map(p => p.nom))].sort((a,b) => a.localeCompare(b,'fr',{sensitivity:'base'}));
+      const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
+      session.etape = "attente_produit_modele";
+      return sendMessage(chatId, `📦 Pour quel modèle ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    if (text === "📋 Voir liste d'attente") {
+      const liste = db.listeAttente || [];
+      if (liste.length === 0) return sendMessage(chatId, `⏳ Aucun client en liste d'attente.`, { reply_markup: menuClients() });
+      // Grouper par produit
+      const parProduit = {};
+      liste.forEach(e => {
+        const key = `${e.produit_nom}${e.produit_couleur ? ' — '+e.produit_couleur : ''}`;
+        if (!parProduit[key]) parProduit[key] = [];
+        parProduit[key].push(e.client_nom);
+      });
+      let msg = `⏳ *Liste d'attente (${liste.length} client(s))*\n\n`;
+      Object.entries(parProduit).forEach(([produit, clients]) => {
+        msg += `📦 *${produit}*\n`;
+        clients.forEach(c => msg += `   👤 ${c}\n`);
+        msg += '\n';
+      });
+      return sendMessage(chatId, msg, { reply_markup: menuClients() });
+    }
+    if (text === "🗑️ Retirer de l'attente") {
+      const liste = db.listeAttente || [];
+      if (liste.length === 0) return sendMessage(chatId, `⏳ Liste vide.`, { reply_markup: menuClients() });
+      const b = liste.map(e => [`❌ ${e.client_nom} — ${e.produit_nom}${e.produit_couleur?' — '+e.produit_couleur:''}`]);
+      b.push(["❌ Annuler"]);
+      session.etape = "attente_retirer";
+      return sendMessage(chatId, `🗑️ Qui retirer ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `🏠`, { reply_markup: menuPrincipal() });
+  }
+
+  if (session.etape === "attente_produit_modele") {
+    const nom = text.replace("📦 ", "").trim();
+    const variantes = db.produits.filter(p => p.nom === nom);
+    if (variantes.length === 0) return sendMessage(chatId, `⚠️ Non trouvé.`, { reply_markup: menuClients() });
+    if (variantes.length === 1) {
+      session.data.produit_nom = variantes[0].nom;
+      session.data.produit_couleur = variantes[0].couleur || "";
+      session.etape = "attente_client";
+    } else {
+      session.data.produit_nom = nom;
+      session.etape = "attente_produit_couleur";
+      const b = variantes.map(v => [`🎨 ${v.couleur}`]); b.push(["🎨 Toutes les couleurs"], ["❌ Annuler"]);
+      return sendMessage(chatId, `🎨 Quelle couleur ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+    // Choisir le client
+    const vrais = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
+    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `👤 Quel client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "attente_produit_couleur") {
+    const couleur = text === "🎨 Toutes les couleurs" ? "" : text.replace("🎨 ", "").trim();
+    session.data.produit_couleur = couleur;
+    session.etape = "attente_client";
+    const vrais = db.clients.filter(c => !db.produits.some(p => p.nom.toLowerCase() === c.nom.toLowerCase()));
+    const b = vrais.map(c => [`👤 ${c.nom}`]); b.push(["❌ Annuler"]);
+    return sendMessage(chatId, `👤 Quel client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  if (session.etape === "attente_client") {
+    const nomClient = text.replace("👤 ", "").trim();
+    const client = db.clients.find(c => c.nom === nomClient);
+    if (!client) return sendMessage(chatId, `⚠️ Client non trouvé.`, { reply_markup: menuClients() });
+    // Vérifier doublon
+    const dejaDans = (db.listeAttente || []).find(e =>
+      e.client_nom === nomClient &&
+      e.produit_nom === session.data.produit_nom &&
+      e.produit_couleur === session.data.produit_couleur
+    );
+    if (dejaDans) {
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `⚠️ *${nomClient}* est déjà en attente pour ce produit.`, { reply_markup: menuClients() });
+    }
+    if (!db.listeAttente) db.listeAttente = [];
+    const entree = {
+      id: genId(),
+      client_nom: nomClient,
+      client_email: client.email || "",
+      produit_nom: session.data.produit_nom,
+      produit_couleur: session.data.produit_couleur || "",
+      chatId,
+      date: new Date().toISOString()
+    };
+    db.listeAttente.push(entree);
+    // Sauvegarder dans Sheets
+    await envoyerVersSheets("liste_attente_ajouter", {
+      id: entree.id, client: entree.client_nom, email: entree.client_email,
+      produit: entree.produit_nom, couleur: entree.produit_couleur,
+      date: new Date().toLocaleString("fr-FR", {timeZone:"Africa/Porto-Novo"})
+    });
+    const prodLabel = `${entree.produit_nom}${entree.produit_couleur ? ' — '+entree.produit_couleur : ''}`;
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `✅ *${nomClient}* ajouté en liste d'attente pour *${prodLabel}* !\n\nIl sera notifié dès que ce produit sera disponible.`, { reply_markup: menuClients() });
+  }
+
+  if (session.etape === "attente_retirer") {
+    const label = text.replace("❌ ", "").trim();
+    const [clientNom, ...rest] = label.split(" — ");
+    const idx = (db.listeAttente || []).findIndex(e => {
+      const prodLabel = `${e.produit_nom}${e.produit_couleur?' — '+e.produit_couleur:''}`;
+      return e.client_nom === clientNom && label.includes(prodLabel);
+    });
+    if (idx === -1) { session.etape = null; return sendMessage(chatId, `❌ Annulé.`, { reply_markup: menuClients() }); }
+    const retiré = db.listeAttente.splice(idx, 1)[0];
+    await envoyerVersSheets("liste_attente_retirer", { id: retiré.id });
+    session.etape = null;
+    return sendMessage(chatId, `✅ *${retiré.client_nom}* retiré de la liste d'attente.`, { reply_markup: menuClients() });
+  }
+
+
+
+  if (session.etape === "attente_notifier") {
+    const enAttente = session.data.enAttente || [];
+    const p = session.data.produit;
+    const prodLabel = `${p.nom}${p.couleur ? ' — '+p.couleur : ''}`;
+
+    if (text === "📧 Notifier tous") {
+      let ok = 0, ko = 0, sansEmail = 0;
+      for (const e of enAttente) {
+        if (!e.client_email) { sansEmail++; continue; }
+        const client = db.clients.find(c => c.nom === e.client_nom) || { nom: e.client_nom, email: e.client_email, telephone: "", id: e.id };
+        const envoye = await envoyerEmailDisponibilite(client, p);
+        if (envoye) ok++; else ko++;
+      }
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `✅ *${ok}* email(s) envoyé(s)${ko > 0 ? `, ${ko} échec(s)` : ''}${sansEmail > 0 ? `, ${sansEmail} sans email` : ''}.`, { reply_markup: menuProduits() });
+    }
+
+    if (text === "📧 Choisir qui notifier") {
+      const avecEmail = enAttente.filter(e => e.client_email);
+      if (avecEmail.length === 0) {
+        session.etape = null; session.data = {};
+        return sendMessage(chatId, `⚠️ Aucun client n'a d'email enregistré.`, { reply_markup: menuProduits() });
+      }
+      const b = avecEmail.map(e => [`📧 ${e.client_nom}`]); b.push(["❌ Annuler"]);
+      session.etape = "attente_notifier_choix";
+      return sendMessage(chatId, `📧 Choisissez le client à notifier :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
+
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, `❌ Notification annulée.`, { reply_markup: menuProduits() });
+  }
+
+  if (session.etape === "attente_notifier_choix") {
+    const nomClient = text.replace("📧 ", "").trim();
+    const enAttente = session.data.enAttente || [];
+    const p = session.data.produit;
+    const entree = enAttente.find(e => e.client_nom === nomClient);
+    if (!entree || !entree.client_email) {
+      session.etape = null; session.data = {};
+      return sendMessage(chatId, `⚠️ Client non trouvé ou sans email.`, { reply_markup: menuProduits() });
+    }
+    const client = db.clients.find(c => c.nom === nomClient) || { nom: nomClient, email: entree.client_email, telephone: "", id: entree.id };
+    const envoye = await envoyerEmailDisponibilite(client, p);
+    session.etape = null; session.data = {};
+    return sendMessage(chatId, envoye ? `✅ Email envoyé à *${nomClient}* !` : `❌ Erreur envoi email.`, { reply_markup: menuProduits() });
+  }
+
   // ══ IA ══
   if (text === "🤖 IA") return sendMessage(chatId, `🤖 *Assistant IA*`, { reply_markup: menuIA() });
 
@@ -2755,7 +2985,25 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     p.stock += qte;
     await envoyerVersSheets("mouvement_stock", { produit: p.nom, couleur: p.couleur || "", operation: "add", quantite: qte, stock_avant: avant, stock_apres: p.stock, note: "Restock", date: new Date().toLocaleString("fr-FR", { timeZone: "Africa/Porto-Novo" }) });
     session.etape = null; session.data = {};
-    return sendMessage(chatId, `✅ Restock effectué !\n📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}*\n🗃️ Nouveau stock: *${p.stock}*`, { reply_markup: menuProduits() });
+    await sendMessage(chatId, `✅ Restock effectué !\n📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}*\n🗃️ Nouveau stock: *${p.stock}*`, { reply_markup: menuProduits() });
+    // Vérifier liste d'attente pour ce produit
+    const enAttente = (db.listeAttente || []).filter(e =>
+      e.produit_nom === p.nom &&
+      (!e.produit_couleur || e.produit_couleur === "" || e.produit_couleur === p.couleur)
+    );
+    if (enAttente.length > 0) {
+      let alertMsg = `🔔 *${enAttente.length} client(s) attendent ce produit !*\n`;
+      enAttente.forEach(e => {
+        alertMsg += `\n👤 *${e.client_nom}*${e.client_email ? ' — ' + e.client_email : ''}`;
+      });
+      alertMsg += `\n\n📧 Voulez-vous les notifier par email ?`;
+      session.etape = "attente_notifier";
+      session.data = { enAttente, produit: p };
+      return sendMessage(chatId, alertMsg, {
+        reply_markup: { keyboard: [["📧 Notifier tous"], ["📧 Choisir qui notifier"], ["❌ Pas maintenant"]], resize_keyboard: true }
+      });
+    }
+    return;
   }
 
   if (session.etape === "restock_quantite") {
