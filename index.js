@@ -3551,12 +3551,12 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "vente_nouveau_client_nom") {
     session.data.nouveau_client = { nom: text.trim() };
     session.etape = "vente_nouveau_client_tel";
-    return sendMessage(chatId, `📱 Numéro de téléphone du client :\n_(obligatoire pour la carte fidélité)_`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `📱 Numéro de téléphone du client :\n_(optionnel)_`, { reply_markup: { keyboard: [["skip"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_nouveau_client_tel") {
-    const telClean = text.trim().replace(/\s/g, "");
-    if (telClean.length < 8) {
-      return sendMessage(chatId, `⚠️ Numéro invalide. Entrez un numéro valide (ex: +22997000000) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    const telClean = text === "skip" ? "" : text.trim().replace(/\s/g, "");
+    if (telClean && telClean.length < 8) {
+      return sendMessage(chatId, `⚠️ Numéro invalide. Entrez un numéro valide ou tapez "skip" :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
     }
     // Vérifier si ce téléphone existe déjà
     const existeTel = db.clients.find(c => c.telephone && String(c.telephone).replace(/\s/g,"") === telClean);
@@ -3571,13 +3571,13 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
     }
     session.data.nouveau_client.telephone = telClean;
     session.etape = "vente_nouveau_client_email";
-    return sendMessage(chatId, `📧 Email du client :\n_(pour l'envoi de la carte fidélité)_`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `📧 Email du client :\n_(optionnel — pour la carte fidélité)_`, { reply_markup: { keyboard: [["skip"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
   }
   if (session.etape === "vente_nouveau_client_email") {
     // Valider l'email
-    const emailClean = text.trim().toLowerCase();
-    if (!emailClean.includes("@") || !emailClean.includes(".")) {
-      return sendMessage(chatId, `⚠️ Email invalide. Entrez un email valide (ex: client@gmail.com) :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    const emailClean = text === "skip" ? "" : text.trim().toLowerCase();
+    if (emailClean && (!emailClean.includes("@") || !emailClean.includes("."))) {
+      return sendMessage(chatId, `⚠️ Email invalide. Entrez un email valide ou tapez "skip" :`, { reply_markup: { keyboard: [["skip"], ["❌ Annuler"]], resize_keyboard: true } });
     }
     // Vérifier si cet email existe déjà
     const existeEmail = db.clients.find(c => c.email && c.email.toLowerCase() === emailClean);
