@@ -2172,19 +2172,36 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "🗑️ Supprimer vente") {
     await chargerDepuisSheets();
     if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
-    // Afficher les 10 dernières ventes
-    const dernieres = db.ventes.slice(0, 10);
-    const b = dernieres.map(v => {
+    const dernieres = db.ventes.slice(0, 20);
+    const b = [["🔍 Rechercher une vente"]];
+    dernieres.forEach(v => {
       let d = "";
       try { d = new Date(v.date).toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo', day:'2-digit', month:'2-digit'}); } catch(e) {}
-      return [`🗑️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`];
+      b.push([`🗑️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
     });
+    if (db.ventes.length > 20) b.push(["📋 Voir toutes les ventes"]);
     b.push(["❌ Annuler"]);
-    session.etape = "supprimer_vente_choix"; session.data = {};
-    return sendMessage(chatId, `🗑️ *Supprimer quelle vente ?*\n_(10 dernières)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    session.etape = "supprimer_vente_choix";
+    session.data = {};
+    return sendMessage(chatId, `🗑️ *Supprimer quelle vente ?*\n_(${db.ventes.length} vente(s) — 20 dernières affichées)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   if (session.etape === "supprimer_vente_choix") {
+    // Recherche vente
+    if (text === "🔍 Rechercher une vente") {
+      session.etape = "supprimer_vente_recherche";
+      return sendMessage(chatId, `🔍 Tapez le nom du client ou du produit :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Voir toutes les ventes
+    if (text === "📋 Voir toutes les ventes") {
+      const b = [["🔍 Rechercher une vente"]];
+      db.ventes.forEach(v => {
+        let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+        b.push([`🗑️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
+      });
+      b.push(["❌ Annuler"]);
+      return sendMessage(chatId, `🗑️ *Toutes les ventes (${db.ventes.length}) :*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
     // Retrouver la vente par correspondance du texte
     const texteVente = text.replace("🗑️ ", "").trim();
     const vente = db.ventes.find(v => {
@@ -2449,16 +2466,33 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   if (text === "✏️ Modifier vente") {
     await chargerDepuisSheets();
     if (db.ventes.length === 0) return sendMessage(chatId, `💰 Aucune vente.`, { reply_markup: menuVentes() });
-    const dernV = db.ventes.slice(0, 10);
-    const b = dernV.map(v => {
+    session.etape = "modifier_vente_choix"; session.data = { mode: "liste" };
+    const dernV = db.ventes.slice(0, 20);
+    const b = [["🔍 Rechercher une vente"]];
+    dernV.forEach(v => {
       let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
-      return [`✏️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`];
+      b.push([`✏️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
     });
+    if (db.ventes.length > 20) b.push(["📋 Voir toutes les ventes"]);
     b.push(["❌ Annuler"]);
-    session.etape = "modifier_vente_choix"; session.data = {};
-    return sendMessage(chatId, `✏️ *Modifier quelle vente ?*\n_(10 dernières)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    return sendMessage(chatId, `✏️ *Modifier quelle vente ?*\n_(${db.ventes.length} vente(s) — 20 dernières affichées)_`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "modifier_vente_choix") {
+    // Recherche vente
+    if (text === "🔍 Rechercher une vente") {
+      session.etape = "modifier_vente_recherche";
+      return sendMessage(chatId, `🔍 Tapez le nom du client ou du produit :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Voir toutes les ventes
+    if (text === "📋 Voir toutes les ventes") {
+      const b = [["🔍 Rechercher une vente"]];
+      db.ventes.forEach(v => {
+        let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+        b.push([`✏️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
+      });
+      b.push(["❌ Annuler"]);
+      return sendMessage(chatId, `✏️ *Toutes les ventes (${db.ventes.length}) :*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    }
     const label = text.replace("✏️ ", "").trim();
     const vente = db.ventes.find(v => {
       let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
@@ -2963,6 +2997,47 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       msgRes += `\n`;
     });
     return sendMessage(chatId, msgRes, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+
+  // ── RECHERCHE VENTE (modifier) ──
+  if (session.etape === "modifier_vente_recherche") {
+    const r = text.toLowerCase().trim();
+    if (r.length < 2) return sendMessage(chatId, `⚠️ Tapez au moins 2 caractères :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    const res = db.ventes.filter(v =>
+      v.produit_nom.toLowerCase().includes(r) ||
+      (v.produit_couleur && v.produit_couleur.toLowerCase().includes(r)) ||
+      v.client_nom.toLowerCase().includes(r)
+    );
+    if (res.length === 0) return sendMessage(chatId, `🔍 Aucune vente trouvée pour "*${text}*".`, { reply_markup: { keyboard: [["🔍 Rechercher une vente"], ["❌ Annuler"]], resize_keyboard: true } });
+    const b = [["🔍 Rechercher une vente"]];
+    res.slice(0, 20).forEach(v => {
+      let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+      b.push([`✏️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
+    });
+    b.push(["❌ Annuler"]);
+    session.etape = "modifier_vente_choix";
+    return sendMessage(chatId, `🔍 *${res.length} résultat(s) pour "${text}" :*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+  // ── RECHERCHE VENTE (supprimer) ──
+  if (session.etape === "supprimer_vente_recherche") {
+    const r = text.toLowerCase().trim();
+    if (r.length < 2) return sendMessage(chatId, `⚠️ Tapez au moins 2 caractères :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    const res = db.ventes.filter(v =>
+      v.produit_nom.toLowerCase().includes(r) ||
+      (v.produit_couleur && v.produit_couleur.toLowerCase().includes(r)) ||
+      v.client_nom.toLowerCase().includes(r)
+    );
+    if (res.length === 0) return sendMessage(chatId, `🔍 Aucune vente trouvée pour "*${text}*".`, { reply_markup: { keyboard: [["🔍 Rechercher une vente"], ["❌ Annuler"]], resize_keyboard: true } });
+    const b = [["🔍 Rechercher une vente"]];
+    res.slice(0, 20).forEach(v => {
+      let d=""; try{d=new Date(v.date).toLocaleDateString('fr-FR',{timeZone:'Africa/Porto-Novo',day:'2-digit',month:'2-digit'});}catch(e){}
+      b.push([`🗑️ ${d} ${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''} | ${v.client_nom} | ${v.montant_total} FCFA`]);
+    });
+    b.push(["❌ Annuler"]);
+    session.etape = "supprimer_vente_choix";
+    return sendMessage(chatId, `🔍 *${res.length} résultat(s) pour "${text}" :*`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   // ══ IA ══
