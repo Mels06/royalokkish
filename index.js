@@ -1293,7 +1293,7 @@ async function sendMessage(chatId, text, options = {}) {
 }
 
 function menuPrincipal() {
-  return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🤖 IA"]], resize_keyboard: true };
+  return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🔍 Rechercher", "🤖 IA"]], resize_keyboard: true };
 }
 function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["✏️ Modifier produit", "🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["⏳ Liste d'attente"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -2741,6 +2741,90 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       `✅ *${entree.client_nom}* ajouté en liste d'attente pour *${prodLabel}* !\n📱 ${entree.client_tel||'—'} | 📧 ${entree.client_email||'—'}\n\n_Note: pas de fiche client créée._`,
       { reply_markup: menuClients() }
     );
+  }
+
+
+  // ══════════════════════════════════════════
+  // RECHERCHE GLOBALE
+  // ══════════════════════════════════════════
+  if (text === "🔍 Rechercher") {
+    await chargerDepuisSheets();
+    session.etape = "recherche_globale";
+    return sendMessage(chatId,
+      `🔍 *Recherche globale*\n\nTapez un nom, prénom, téléphone, email ou nom de produit :`,
+      { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "recherche_globale") {
+    const r = text.toLowerCase().trim();
+    session.etape = null;
+    let msg = `🔍 *Résultats pour "${text}"*\n`;
+    let total = 0;
+
+    // ── CLIENTS ──
+    const clients = db.clients.filter(c =>
+      c.nom.toLowerCase().includes(r) ||
+      (c.telephone && String(c.telephone).includes(r)) ||
+      (c.email && c.email.toLowerCase().includes(r)) ||
+      (c.note && c.note.toLowerCase().includes(r))
+    );
+    if (clients.length > 0) {
+      msg += `\n👥 *CLIENTS (${clients.length})*\n`;
+      clients.forEach(c => {
+        const badge = c.nb_achats >= ACHAT_REDUCTION ? "⭐" : "🆕";
+        msg += `${badge} *${c.nom}*`;
+        if (c.telephone) msg += ` | 📱 ${c.telephone}`;
+        if (c.email) msg += ` | 📧 ${c.email}`;
+        msg += `\n   🛒 ${c.nb_achats} achat(s) — ${c.ca_total} FCFA\n`;
+      });
+      total += clients.length;
+    }
+
+    // ── PRODUITS ──
+    const produits = db.produits.filter(p =>
+      p.nom.toLowerCase().includes(r) ||
+      (p.couleur && p.couleur.toLowerCase().includes(r)) ||
+      (p.categorie && p.categorie.toLowerCase().includes(r)) ||
+      (p.caracteristiques && p.caracteristiques.toLowerCase().includes(r))
+    );
+    if (produits.length > 0) {
+      msg += `\n📦 *PRODUITS (${produits.length})*\n`;
+      produits.forEach(p => {
+        const stock_icon = p.stock === 0 ? "🔴" : p.stock <= 5 ? "🟡" : "🟢";
+        msg += `${stock_icon} *${p.nom}${p.couleur ? ' — '+p.couleur : ''}*`;
+        msg += ` | 💰 ${p.prix_vente} FCFA | 📦 Stock: ${p.stock}`;
+        if (p.prix_revendeur) msg += ` | 🤝 Rev: ${p.prix_revendeur}`;
+        msg += `\n`;
+      });
+      total += produits.length;
+    }
+
+    // ── VENTES ──
+    const ventes = db.ventes.filter(v =>
+      v.produit_nom.toLowerCase().includes(r) ||
+      (v.produit_couleur && v.produit_couleur.toLowerCase().includes(r)) ||
+      v.client_nom.toLowerCase().includes(r) ||
+      String(v.montant_total).includes(r)
+    );
+    if (ventes.length > 0) {
+      msg += `\n💰 *VENTES (${ventes.length})*\n`;
+      ventes.slice(0, 8).forEach(v => {
+        let d = "";
+        try { d = new Date(v.date).toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo', day:'2-digit', month:'2-digit', year:'2-digit'}); } catch(e) {}
+        msg += `📅 ${d} | *${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''}* x${v.quantite}`;
+        msg += ` | 👤 ${v.client_nom} | 💰 ${v.montant_total} FCFA${v.is_revendeur?' 🤝':''}\n`;
+      });
+      if (ventes.length > 8) msg += `_...et ${ventes.length - 8} autre(s)_\n`;
+      total += ventes.length;
+    }
+
+    if (total === 0) {
+      return sendMessage(chatId, `🔍 Aucun résultat pour *"${text}"*.\n\nEssayez avec un autre terme.`, { reply_markup: menuPrincipal() });
+    }
+
+    msg += `\n📊 *${total} résultat(s) au total*`;
+    return sendMessage(chatId, msg, { reply_markup: menuPrincipal() });
   }
 
   // ══ IA ══
