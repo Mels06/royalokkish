@@ -1295,9 +1295,9 @@ async function sendMessage(chatId, text, options = {}) {
 function menuPrincipal() {
   return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🔍 Rechercher", "🤖 IA"]], resize_keyboard: true };
 }
-function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["✏️ Modifier produit", "🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🔍 Rechercher", "✏️ Modifier produit"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["⏳ Liste d'attente"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
-function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes"], ["✏️ Modifier vente", "🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes", "🔍 Rechercher"], ["✏️ Modifier vente", "🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["✏️ Modifier événement", "🗑️ Supprimer événement"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuFidelite() { return { keyboard: [["📋 Voir membres fidélité"], ["🏆 Top clients"], ["🔄 Clients récurrents", "😴 Clients inactifs"], ["📧 Renvoyer carte fidélité"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuIA() { return { keyboard: [["📊 Analyse rentabilité"], ["🚨 Produits à restock"], ["💡 Conseils CA"], ["❓ Question libre"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -1716,6 +1716,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
         ["📅 Aujourd'hui", "📅 Cette semaine"],
         ["📅 Ce mois", "📅 Ce trimestre"],
         ["📅 Cette année", "📅 Tout voir"],
+        ["✏️ Période personnalisée"],
         ["🏠 Menu"]
       ], resize_keyboard: true }
     });
@@ -1749,6 +1750,12 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     } else if (text === "📅 Tout voir") {
       debut = null;
       labelPeriode = "Depuis le début";
+    } else if (text === "✏️ Période personnalisée") {
+      session.etape = "stats_periode_custom_debut";
+      return sendMessage(chatId,
+        `✏️ *Période personnalisée*\n\nDate de début (ex: 01/06/2026) :`,
+        { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } }
+      );
     } else {
       session.etape = null;
       return sendMessage(chatId, `⚠️ Période non reconnue.`, { reply_markup: menuPrincipal() });
@@ -2824,6 +2831,80 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     }
 
     msg += `\n📊 *${total} résultat(s) au total*`;
+    return sendMessage(chatId, msg, { reply_markup: menuPrincipal() });
+  }
+
+
+  if (session.etape === "stats_periode_custom_debut") {
+    const parts = text.trim().split('/');
+    if (parts.length < 3) return sendMessage(chatId, `⚠️ Format invalide. Utilisez JJ/MM/AAAA (ex: 01/06/2026) :`);
+    const [j, m, a] = parts;
+    const debut = new Date(`${a}-${m}-${j}T00:00:00+01:00`);
+    if (isNaN(debut.getTime())) return sendMessage(chatId, `⚠️ Date invalide. Utilisez JJ/MM/AAAA :`);
+    session.data.custom_debut = debut;
+    session.etape = "stats_periode_custom_fin";
+    return sendMessage(chatId,
+      `📅 Début : *${text.trim()}*\n\nDate de fin (ex: 30/06/2026) :`,
+      { reply_markup: { keyboard: [["Aujourd'hui"], ["❌ Annuler"]], resize_keyboard: true } }
+    );
+  }
+
+  if (session.etape === "stats_periode_custom_fin") {
+    let fin;
+    if (text === "Aujourd'hui") {
+      fin = new Date();
+    } else {
+      const parts = text.trim().split('/');
+      if (parts.length < 3) return sendMessage(chatId, `⚠️ Format invalide. Utilisez JJ/MM/AAAA :`);
+      const [j, m, a] = parts;
+      fin = new Date(`${a}-${m}-${j}T23:59:59+01:00`);
+      if (isNaN(fin.getTime())) return sendMessage(chatId, `⚠️ Date invalide. Utilisez JJ/MM/AAAA :`);
+    }
+    const debut = session.data.custom_debut;
+    if (fin < debut) return sendMessage(chatId, `⚠️ La date de fin doit être après la date de début.`);
+
+    session.etape = null; session.data = {};
+    await chargerDepuisSheets();
+
+    const debutStr = debut.toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo'});
+    const finStr = fin.toLocaleDateString('fr-FR', {timeZone:'Africa/Porto-Novo'});
+    const labelPeriode = `${debutStr} → ${finStr}`;
+
+    const ventesFiltrees = db.ventes.filter(v => {
+      const d = new Date(v.date);
+      return d >= debut && d <= fin;
+    });
+    const chargesFiltrees = db.charges.filter(c => {
+      const d = new Date(c.date);
+      return d >= debut && d <= fin;
+    });
+
+    const ca = ventesFiltrees.reduce((s,v) => s+(v.montant_total||0), 0);
+    const marge = ventesFiltrees.reduce((s,v) => s+(v.marge_totale||0), 0);
+    const charges = chargesFiltrees.reduce((s,c) => s+(c.montant||0), 0);
+    const benefice = marge - charges;
+
+    let msg = `📊 *STATS — ${labelPeriode}*\n\n`;
+    msg += `💰 CA : *${ca} FCFA*\n`;
+    msg += `✅ Marge brute : *${marge} FCFA*\n`;
+    msg += `📊 Charges : ${charges} FCFA\n`;
+    msg += `🏆 Bénéfice net : *${benefice} FCFA*\n\n`;
+    msg += `🛒 Ventes : ${ventesFiltrees.length} | 👥 Clients : ${db.clients.length}`;
+
+    if (ventesFiltrees.length > 0) {
+      // Top produits sur la période
+      const topProd = {};
+      ventesFiltrees.forEach(v => {
+        const k = `${v.produit_nom}${v.produit_couleur?' — '+v.produit_couleur:''}`;
+        topProd[k] = (topProd[k]||0) + 1;
+      });
+      const sorted = Object.entries(topProd).sort((a,b)=>b[1]-a[1]).slice(0,3);
+      if (sorted.length > 0) {
+        msg += `\n\n🏅 *Top produits :*\n`;
+        sorted.forEach(([nom, nb], i) => msg += `${i+1}. ${nom} — ${nb} vente(s)\n`);
+      }
+    }
+
     return sendMessage(chatId, msg, { reply_markup: menuPrincipal() });
   }
 
