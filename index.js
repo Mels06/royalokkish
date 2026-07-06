@@ -1663,7 +1663,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     if (db.produits.length === 0) return sendMessage(chatId, `⚠️ Ajoutez d'abord un produit !`, { reply_markup: menuVentes() });
     session.etape = "vente_modele"; session.data = { panier: [] };
     const nomsUniques = [...new Set(db.produits.filter(p => p.stock > 0).map(p => p.nom))].sort((a,b) => a.localeCompare(b, "fr", {sensitivity: "base"}));
-    const b = nomsUniques.map(nom => [`📦 ${nom}`]); b.push(["❌ Annuler"]);
+    const b = [["🔍 Rechercher produit"], ...nomsUniques.map(nom => [`📦 ${nom}`]), ["❌ Annuler"]];
     return sendMessage(chatId, `🛒 Choisissez le modèle :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
@@ -2908,6 +2908,45 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     return sendMessage(chatId, msg, { reply_markup: menuPrincipal() });
   }
 
+
+  if (session.etape === "vente_recherche_produit") {
+    const r = text.toLowerCase().trim();
+    const res = db.produits.filter(p => p.stock > 0 && (
+      p.nom.toLowerCase().includes(r) ||
+      (p.couleur && p.couleur.toLowerCase().includes(r)) ||
+      (p.categorie && p.categorie.toLowerCase().includes(r))
+    ));
+    if (res.length === 0) {
+      return sendMessage(chatId, `🔍 Aucun produit trouvé pour "*${text}*".\nEssayez un autre terme :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Afficher les résultats comme boutons sélectionnables
+    const nomsUniques = [...new Set(res.map(p => p.nom))];
+    const b = [["🔍 Rechercher produit"], ...nomsUniques.map(nom => [`📦 ${nom}`]), ["❌ Annuler"]];
+    session.etape = "vente_modele";
+    return sendMessage(chatId, `🔍 *${res.length} résultat(s) pour "${text}"* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
+
+  if (session.etape === "vente_recherche_client") {
+    const r = text.toLowerCase().trim();
+    const nomsProduitsLower = db.produits.map(p => p.nom.toLowerCase());
+    const res = db.clients.filter(c =>
+      !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np)) && (
+        c.nom.toLowerCase().includes(r) ||
+        (c.telephone && String(c.telephone).includes(r)) ||
+        (c.email && c.email.toLowerCase().includes(r))
+      )
+    );
+    if (res.length === 0) {
+      return sendMessage(chatId, `🔍 Aucun client trouvé pour "*${text}*".\nEssayez un autre terme :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    // Afficher les résultats comme boutons sélectionnables
+    const b = res.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
+    b.splice(0, 0, ["➕ Nouveau client"], ["🔍 Rechercher client"], ["Anonyme"]);  b.push(["❌ Annuler"]);
+    session.etape = "vente_client";
+    return sendMessage(chatId, `🔍 *${res.length} client(s) trouvé(s)* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+  }
+
   // ══ IA ══
   if (text === "🤖 IA") return sendMessage(chatId, `🤖 *Assistant IA*`, { reply_markup: menuIA() });
 
@@ -3479,6 +3518,11 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   // ── VENTE RAPIDE ──
   // Étape 1: modèle choisi → afficher les couleurs dispo
   if (session.etape === "vente_modele") {
+    // Recherche produit pendant la vente
+    if (text === "🔍 Rechercher produit") {
+      session.etape = "vente_recherche_produit";
+      return sendMessage(chatId, `🔍 Tapez le nom du produit :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
     const nomModele = text.replace("📦 ", "").trim();
     const variantes = db.produits.filter(p => p.nom === nomModele && p.stock > 0);
     if (variantes.length === 0) return sendMessage(chatId, `⚠️ Stock épuisé !`, { reply_markup: menuVentes() });
@@ -3621,7 +3665,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
       !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
     );
     const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-    b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+    b.splice(0, 0, ["➕ Nouveau client"], ["🔍 Rechercher client"], ["Anonyme"]);  b.push(["❌ Annuler"]);
     return sendMessage(chatId, `👤 Client ?\n⭐ = réduction dispo | ➕ = nouveau`, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
   if (session.etape === "vente_reduction_saisie") {
@@ -3666,7 +3710,7 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
         !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np))
       );
       const b = vraisClients.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-      b.push(["➕ Nouveau client"], ["Anonyme"], ["❌ Annuler"]);
+      b.splice(0, 0, ["➕ Nouveau client"], ["🔍 Rechercher client"], ["Anonyme"]);  b.push(["❌ Annuler"]);
       const panierTotal = session.data.panier.reduce((s, a) => s + a.total, 0);
       return sendMessage(chatId, `💰 Total: *${panierTotal} FCFA*\n\n👤 Client ?`, { reply_markup: { keyboard: b, resize_keyboard: true } });
     }
