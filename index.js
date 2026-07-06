@@ -1669,7 +1669,7 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (text === "📝 Vente texte") {
     session.etape = "vente_texte";
-    return sendMessage(chatId, `📝 *Vente texte*\n\nUne vente par ligne : 'produit quantité client'\n\nEx:\n'''\nT-shirt 3 Karim\nHoodie 1 Sophie\n'''\nOu envoyez une *photo* !`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    return sendMessage(chatId, `📝 *Vente texte*\n\nÉcrivez vos ventes ou envoyez une 📷 *photo* (bon de commande, liste manuscrite, screenshot WhatsApp...)\n\nEx: \`Impérial Noir 1 Boris 0196... boris@gmail.com\``, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
   }
 
   // ══ CHARGES ══
@@ -3695,17 +3695,51 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   if (session.etape === "vente_texte") {
     await sendMessage(chatId, `⏳ Analyse des ventes en cours...`);
 
-    // Utiliser GPT-4o pour extraire les ventes dans n'importe quel format
     const produitsDispo = db.produits.map(p => p.nom + (p.couleur ? " " + p.couleur : "")).join(", ");
     const clientsDispo = db.clients.map(c => c.nom).join(", ");
 
+    // ── TRAITEMENT PHOTO ──
+    let imageUrl = null;
+    if (msg.photo && msg.photo.length > 0) {
+      try {
+        // Récupérer le fichier via l'API Telegram
+        const photoId = msg.photo[msg.photo.length - 1].file_id;
+        const fileResp = await axios.get(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/getFile?file_id=${photoId}`);
+        const filePath = fileResp.data.result.file_path;
+        imageUrl = `https://api.telegram.org/file/bot${TELEGRAM_TOKEN}/${filePath}`;
+        console.log(`📷 Photo reçue pour analyse: ${imageUrl}`);
+      } catch(e) {
+        console.error("Erreur récupération photo:", e.message);
+        return sendMessage(chatId, `❌ Impossible de lire la photo. Essayez en texte.`, { reply_markup: menuVentes() });
+      }
+    }
+
     let ventesExtraites;
     try {
+      // Construire le message selon si c'est une photo ou du texte
+      const userContent = imageUrl ? [
+        { type: "text", text: `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
+Produits disponibles : ${produitsDispo || "aucun"}
+Clients connus : ${clientsDispo || "aucun"}
+
+Analyse cette image et extrait toutes les ventes visibles (bon de commande, liste, texte manuscrit, screenshot, etc.)
+
+Règles importantes :
+- La liste "Produits disponibles" contient "Nom Couleur" — utilise EXACTEMENT ces noms et couleurs
+- Un nombre = quantité (défaut 1 si absent)
+- Le nom du client = personne identifiable (pas un produit, pas un nombre, pas un email)
+- Extrait aussi email et téléphone si visibles sur l'image
+- Ne devine JAMAIS une couleur si elle n'est pas clairement visible ou identifiable` },
+        { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
+      ] : `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
+Produits disponibles : ${produitsDispo || "aucun"}
+Clients connus : ${clientsDispo || "aucun"}`;
+
       const completion = await openai.chat.completions.create({
         model: "gpt-4o",
         messages: [{
           role: "user",
-          content: `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
+          content: imageUrl ? userContent : `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
 Produits disponibles : ${produitsDispo || "aucun"}
 Clients connus : ${clientsDispo || "aucun"}
 
@@ -3729,7 +3763,7 @@ Réponds UNIQUEMENT avec ce JSON (rien d'autre) :
 [{"produit":"nom exact du modèle","couleur":"couleur exacte ou null si pas de couleur","quantite":1,"client":"nom ou null","telephone":"numéro ou null","email":"email ou null"}]
 Si plusieurs ventes, mets plusieurs objets dans le tableau.`
         }],
-        max_tokens: 300,
+        max_tokens: 1500,
         temperature: 0,
       });
 
@@ -3741,8 +3775,8 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
     }
 
     // Sécurité: si le texte contient un email/téléphone mais qu'aucune vente n'a de client lié → alerter
-    const emailDansTexte = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-    const telDansTexte = text.match(/\b\d{8,}\b/);
+    // Sécurité email/tel (texte uniquement, pas pour les photos)
+    if (!imageUrl) {
     if ((emailDansTexte || telDansTexte) && ventesExtraites.length > 0) {
       const auMoinsUnSansClient = ventesExtraites.some(v => !v.client && !v.email && !v.telephone);
       if (auMoinsUnSansClient) {
@@ -3752,6 +3786,7 @@ Si plusieurs ventes, mets plusieurs objets dans le tableau.`
           { reply_markup: menuVentes() }
         );
       }
+    }
     }
 
     let resultMsg = "", totalCA = 0, nbOk = 0;
