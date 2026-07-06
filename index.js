@@ -2953,9 +2953,16 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
     }
     // Afficher les résultats comme boutons sélectionnables
     const b = res.map(c => [c.nb_achats >= ACHAT_REDUCTION ? `⭐ ${c.nom}` : c.nom]);
-    b.splice(0, 0, ["➕ Nouveau client"], ["🔍 Rechercher client"], ["Anonyme"]);  b.push(["❌ Annuler"]);
+    b.splice(0, 0, ["🔍 Rechercher client"], ["➕ Nouveau client"], ["Anonyme"]);  b.push(["❌ Annuler"]);
     session.etape = "vente_client";
-    return sendMessage(chatId, `🔍 *${res.length} client(s) trouvé(s)* :`, { reply_markup: { keyboard: b, resize_keyboard: true } });
+    let msgRes = `🔍 *${res.length} client(s) trouvé(s) — Cliquez pour sélectionner :*\n`;
+    res.forEach(c => {
+      msgRes += `\n👤 *${c.nom}*${c.nb_achats >= ACHAT_REDUCTION ? ' ⭐' : ''}`;
+      if (c.telephone) msgRes += ` | 📱 ${c.telephone}`;
+      if (c.email) msgRes += ` | 📧 ${c.email}`;
+      msgRes += `\n`;
+    });
+    return sendMessage(chatId, msgRes, { reply_markup: { keyboard: b, resize_keyboard: true } });
   }
 
   // ══ IA ══
