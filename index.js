@@ -2765,6 +2765,9 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (session.etape === "recherche_globale") {
     const r = text.toLowerCase().trim();
+    if (r.length < 3) {
+      return sendMessage(chatId, `⚠️ Tapez au moins 3 caractères pour chercher :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+    }
     session.etape = null;
     let msg = `🔍 *Résultats pour "${text}"*\n`;
     let total = 0;
@@ -2911,11 +2914,12 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (session.etape === "vente_recherche_produit") {
     const r = text.toLowerCase().trim();
-    const res = db.produits.filter(p => p.stock > 0 && (
-      p.nom.toLowerCase().includes(r) ||
-      (p.couleur && p.couleur.toLowerCase().includes(r)) ||
-      (p.categorie && p.categorie.toLowerCase().includes(r))
-    ));
+    if (r.length < 3) {
+      return sendMessage(chatId, `⚠️ Tapez au moins 3 caractères pour chercher :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+    const res = db.produits.filter(p => p.stock > 0 &&
+      p.nom.toLowerCase().includes(r)
+    );
     if (res.length === 0) {
       return sendMessage(chatId, `🔍 Aucun produit trouvé pour "*${text}*".\nEssayez un autre terme :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
     }
@@ -2929,6 +2933,9 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
 
   if (session.etape === "vente_recherche_client") {
     const r = text.toLowerCase().trim();
+    if (r.length < 3) {
+      return sendMessage(chatId, `⚠️ Tapez au moins 3 caractères pour chercher :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
     const nomsProduitsLower = db.produits.map(p => p.nom.toLowerCase());
     const res = db.clients.filter(c =>
       !nomsProduitsLower.some(np => c.nom.toLowerCase().includes(np)) && (
@@ -3847,14 +3854,18 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
 Produits disponibles : ${produitsDispo || "aucun"}
 Clients connus : ${clientsDispo || "aucun"}
 
-Analyse cette image et extrait toutes les ventes visibles (bon de commande, liste, texte manuscrit, screenshot, etc.)
+Analyse cette image et extrait toutes les ventes visibles (bon de commande, liste manuscrite, screenshot, etc.).
 
-Règles importantes :
-- La liste "Produits disponibles" contient "Nom Couleur" — utilise EXACTEMENT ces noms et couleurs
+RÈGLE ABSOLUE N°1 : Lis MOT POUR MOT ce qui est écrit sur l'image. Si tu vois "Gris" écrit, retourne "Gris". Si tu vois "Jaune", retourne "Jaune". NE remplace JAMAIS une couleur lue par une autre.
+
+RÈGLE ABSOLUE N°2 : La couleur est dans le champ "couleur" du JSON — jamais nulle si une couleur est écrite sur l'image.
+
+Autres règles :
+- Cherche la correspondance dans "Produits disponibles" APRÈS avoir lu exactement la couleur
 - Un nombre = quantité (défaut 1 si absent)
-- Le nom du client = personne identifiable (pas un produit, pas un nombre, pas un email)
-- Extrait aussi email et téléphone si visibles sur l'image
-- Ne devine JAMAIS une couleur si elle n'est pas clairement visible ou identifiable` },
+- Nom du client = prénom/nom d'une personne (pas un produit, pas un nombre, pas un email)
+- Extrait email et téléphone si présents
+- Jusqu'à 10 ventes possibles par image` },
         { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
       ] : `Tu es un assistant commercial qui extrait des informations de ventes pour une boutique de lunettes au Bénin.
 Produits disponibles : ${produitsDispo || "aucun"}
