@@ -961,14 +961,18 @@ async function enregistrerVenteComplete(produitNomOuId, qte, clientInfo, prixVen
 
   // Sinon, on retombe sur la recherche textuelle (cas de la vente texte / IA, où on n'a qu'un nom)
   const produitNom = produitNomOuId;
-  if (!produit) produit = db.produits.find(p => {
-    const nomAvecCouleur = p.couleur ? (p.nom + " " + p.couleur).toLowerCase() : p.nom.toLowerCase();
-    return nomAvecCouleur === String(produitNom).toLowerCase();
-  });
+  if (!produit) {
+    const normalize = s => String(s).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    produit = db.produits.find(p => {
+      const nomAvecCouleur = p.couleur ? normalize(p.nom + " " + p.couleur) : normalize(p.nom);
+      return nomAvecCouleur === normalize(produitNom);
+    });
+  }
 
   if (!produit) {
     // Pas de correspondance exacte → chercher les variantes du même modèle (sans deviner la couleur)
-    const variantes = db.produits.filter(p => p.nom.toLowerCase() === produitNom.toLowerCase());
+    const normalize2 = s => String(s).toLowerCase().trim().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    const variantes = db.produits.filter(p => normalize2(p.nom) === normalize2(produitNom.split(' ')[0]));
     if (variantes.length === 1) {
       // Une seule couleur pour ce modèle → pas d'ambiguïté
       produit = variantes[0];
@@ -3727,6 +3731,12 @@ ${googleEvent ? "\n📆 Google Agenda ✅" : "\n📆 Google Agenda ⚠️"}
   }
 
   if (session.etape === "vente_client") {
+    // Recherche client pendant la sélection
+    if (text === "🔍 Rechercher client") {
+      session.etape = "vente_recherche_client";
+      return sendMessage(chatId, `🔍 Tapez le nom, téléphone ou email du client :`, { reply_markup: { keyboard: [["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } });
+    }
+
     const clientNom = text.replace("⭐ ", "").trim();
 
     // Nouveau client → collecter les infos
