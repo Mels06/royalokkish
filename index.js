@@ -885,6 +885,7 @@ function appliquerReduction(prix, nb_achats) {
 
 // Compat ancienne signature
 const ACHAT_REDUCTION = 1;
+const SUPPLEMENT_PHOTOCHROMIQUE = 7000; // Supplément photochromique en FCFA
 const TAUX_REDUCTION = 0.10;
 
 // Trouver ou créer un client (avec fidélité)
@@ -3144,12 +3145,12 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       session.etape = "vente_panier";
       return sendMessage(chatId, recap, { reply_markup: { keyboard: bPanier, resize_keyboard: true } });
     } else {
-      // Client normal → réduction
+      // Client normal → supplément d'abord
       const prixTotal = p.prix_vente * qte;
-      session.etape = "vente_reduction_manuelle";
+      session.etape = "vente_supplement";
       return sendMessage(chatId,
-        `📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
-        { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+        `📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix de base : *${prixTotal} FCFA*\n\n🔵 Option verres supplémentaire ?`,
+        { reply_markup: { keyboard: [["🔵 Photochromique +"+SUPPLEMENT_PHOTOCHROMIQUE+" FCFA"], ["❌ Sans supplément"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } }
       );
     }
   }
