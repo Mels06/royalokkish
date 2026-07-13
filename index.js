@@ -914,8 +914,9 @@ function trouverOuCreerClient(info) {
 // Enregistrer une vente avec gestion fidélité
 // Vérifie si un produit est une paire de lunettes
 function estDesLunettes(nomProduit) {
-  const mots = ["lunette", "lunettes", "monture", "solaire", "solaires", "optique", "vue"];
-  return mots.some(m => nomProduit.toLowerCase().includes(m));
+  // Tout produit qui n'est pas un étui/housse/accessoire = lunettes
+  const motsExclus = ["etui", "étui", "housse", "case", "chiffon", "cordon", "spray", "produit"];
+  return !motsExclus.some(m => nomProduit.toLowerCase().includes(m));
 }
 
 // Trouver l'étui dans le stock
@@ -1150,6 +1151,9 @@ async function finaliserVente(chatId, session, clientNom) {
   }
 
   let prixOverride = session.data.prixOverride || null;
+  const supplement = session.data.supplement || null;
+  const supplementParUnite = supplement ? Math.round(supplement.montant / (session.data.quantite || 1)) : 0;
+
   if (!prixOverride && session.data.reduction_manuelle && session.data.reduction_manuelle > 0) {
     const prixBase = session.data.produit.prix_vente * session.data.quantite;
     if (session.data.reduction_montant_exact) {
@@ -1158,8 +1162,15 @@ async function finaliserVente(chatId, session, clientNom) {
       prixOverride = Math.round(session.data.produit.prix_vente * (1 - session.data.reduction_manuelle / 100));
     }
   }
+  // Ajouter le supplément au prix unitaire
+  if (supplementParUnite > 0) {
+    prixOverride = (prixOverride || session.data.produit.prix_vente) + supplementParUnite;
+  }
   // On passe l'ID exact de l'objet produit déjà sélectionné — aucune reconstruction de texte, aucune ambiguïté
   const result = await enregistrerVenteComplete(session.data.produit.id, session.data.quantite, clientNom, prixOverride);
+  if (result && result.vente && supplement) {
+    result.vente.supplement = supplement;
+  }
   if (result.erreur) {
     session.etape = "vente_texte"; session.data = {};
     return sendMessage(chatId, `❌ ${result.erreur}\n\n✏️ Réessayez en précisant bien le produit, la couleur, la quantité et le client :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
@@ -1187,7 +1198,7 @@ async function finaliserVente(chatId, session, clientNom) {
     await sendMessage(chatId, `🔴 *RUPTURE DE STOCK !*\n📦 ${result.produit.nom}${result.produit.couleur?' — '+result.produit.couleur:''}\n❌ Plus aucune unité disponible !`);
   }
 
-  let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
+  let rep = `✅ *Vente enregistrée !*\n🛒 ${result.vente.produit_nom} x${result.vente.quantite}\n👤 ${result.vente.client_nom}\n💰 *${result.vente.montant_total} FCFA*${result.vente.supplement?`\n🔵 ${result.vente.supplement.nom}: +${result.vente.supplement.montant} FCFA`:''}\n📈 Marge: ${result.vente.marge_totale} FCFA\n📦 Restant: ${result.produit.stock}`;
   if (result.reductionAppliquee) rep += `\n\n🎁 *Réduction fidélité ${result.labelReduction || ''} appliquée !*\n💸 Économie : ${result.montantReduction} FCFA`;
   if (result.etuiOffert) {
     if (result.etuiOffert.erreur) {
@@ -1299,7 +1310,7 @@ async function sendMessage(chatId, text, options = {}) {
 function menuPrincipal() {
   return { keyboard: [["📦 Produits", "👥 Clients"], ["💰 Ventes", "📊 Charges"], ["📈 Stats", "🚨 Alertes"], ["📅 Agenda", "🎁 Fidélité"], ["🔍 Rechercher", "🤖 IA"]], resize_keyboard: true };
 }
-function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🔍 Rechercher", "✏️ Modifier produit"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
+function menuProduits() { return { keyboard: [["➕ Ajouter produit"], ["📋 Voir stock", "🔄 Restock"], ["🔍 Rechercher produit", "✏️ Modifier produit"], ["🗑️ Supprimer produit"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuClients() { return { keyboard: [["➕ Ajouter client", "🔍 Rechercher client"], ["📋 Voir clients"], ["📞 Clients à relancer", "🚚 Commandes à livrer"], ["⏳ Liste d'attente"], ["✏️ Modifier client", "🗑️ Supprimer client"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuVentes() { return { keyboard: [["➕ Vente rapide", "📝 Vente texte"], ["📋 Voir ventes", "🔍 Rechercher"], ["✏️ Modifier vente", "🗑️ Supprimer vente"], ["🏠 Menu"]], resize_keyboard: true }; }
 function menuAgenda() { return { keyboard: [["➕ Ajouter événement"], ["📋 Voir agenda", "🔍 Agenda du jour"], ["✏️ Modifier événement", "🗑️ Supprimer événement"], ["🏠 Menu"]], resize_keyboard: true }; }
@@ -3095,12 +3106,15 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
         { reply_markup: { keyboard: [["🛒 Client normal","🤝 Revendeur"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
       );
     }
-    // Sinon → réduction directement
+    // Sinon → supplément d'abord
     const prixTotal = p.prix_vente * qte;
-    session.etape = "vente_reduction_manuelle";
+    sauvegarderEtape(session, "vente_supplement", session.data,
+      { reply_markup: { keyboard: [["🔵 Photochromique +"+SUPPLEMENT_PHOTOCHROMIQUE+" FCFA"], ["❌ Sans supplément"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } }
+    );
+    session.etape = "vente_supplement";
     return sendMessage(chatId,
-      `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
-      { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
+      `📦 *${p.nom}${p.couleur ? ' — '+p.couleur : ''}* x${qte}\n💰 Prix de base : *${prixTotal} FCFA*\n\n🔵 Option verres supplémentaire ?`,
+      { reply_markup: { keyboard: [["🔵 Photochromique +"+SUPPLEMENT_PHOTOCHROMIQUE+" FCFA"], ["❌ Sans supplément"], ["⬅️ Retour"], ["❌ Annuler"]], resize_keyboard: true } }
     );
   }
 
@@ -3136,6 +3150,34 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
       return sendMessage(chatId,
         `📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
         { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["❌ Annuler"]], resize_keyboard: true } }
+      );
+    }
+  }
+
+
+  // ── SUPPLÉMENT PHOTOCHROMIQUE ──
+  if (session.etape === "vente_supplement") {
+    const p = session.data.produit;
+    const qte = session.data.quantite;
+
+    if (text === "🔵 Photochromique +" + SUPPLEMENT_PHOTOCHROMIQUE + " FCFA") {
+      // Ajouter le supplément
+      session.data.supplement = { nom: "Photochromique", montant: SUPPLEMENT_PHOTOCHROMIQUE * qte };
+      const prixBase = p.prix_vente * qte;
+      const prixTotal = prixBase + (SUPPLEMENT_PHOTOCHROMIQUE * qte);
+      session.etape = "vente_reduction_manuelle";
+      return sendMessage(chatId,
+        `✅ *Photochromique ajouté !*\n📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix base : ${prixBase} FCFA\n🔵 Photochromique : +${SUPPLEMENT_PHOTOCHROMIQUE * qte} FCFA\n💰 *Total : ${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
+        { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
+      );
+    } else {
+      // Sans supplément → réduction directement
+      session.data.supplement = null;
+      const prixTotal = p.prix_vente * qte;
+      session.etape = "vente_reduction_manuelle";
+      return sendMessage(chatId,
+        `📦 *${p.nom}${p.couleur?' — '+p.couleur:''}* x${qte}\n💰 Prix total : *${prixTotal} FCFA*\n\n🎁 Appliquer une réduction ?`,
+        { reply_markup: { keyboard: [["5%","10%"],["15%","20%"],["✏️ Montant exact"],["❌ Pas de réduction"],["⬅️ Retour"],["❌ Annuler"]], resize_keyboard: true } }
       );
     }
   }
@@ -3346,6 +3388,36 @@ Nom du client :`, { reply_markup: { keyboard: db.clients.map(c => [c.nom]).conca
   }
 
   // ── VENTE TEXTE — IA extrait les infos dans n'importe quel ordre ──
+
+  if (text === "🔍 Rechercher produit") {
+    await chargerDepuisSheets();
+    session.etape = "recherche_produit_stock";
+    return sendMessage(chatId, `🔍 *Recherche produit*\n\nTapez le nom, la couleur ou la catégorie :`, { reply_markup: { keyboard: [["❌ Annuler"]], resize_keyboard: true } });
+  }
+
+  if (session.etape === "recherche_produit_stock") {
+    const r = text.toLowerCase().trim();
+    session.etape = null;
+    if (r.length < 2) return sendMessage(chatId, `⚠️ Tapez au moins 2 caractères.`, { reply_markup: menuProduits() });
+    const res = db.produits.filter(p =>
+      p.nom.toLowerCase().includes(r) ||
+      (p.couleur && p.couleur.toLowerCase().includes(r)) ||
+      (p.categorie && p.categorie.toLowerCase().includes(r)) ||
+      (p.caracteristiques && p.caracteristiques.toLowerCase().includes(r))
+    );
+    if (res.length === 0) return sendMessage(chatId, `🔍 Aucun produit trouvé pour "*${text}*".`, { reply_markup: menuProduits() });
+    let msg = `🔍 *${res.length} produit(s) pour "${text}" :*\n\n`;
+    res.forEach(p => {
+      const stock_icon = p.stock === 0 ? "🔴" : p.stock <= 3 ? "🟡" : "🟢";
+      msg += `${stock_icon} *${p.nom}${p.couleur ? ' — '+p.couleur : ''}*\n`;
+      msg += `   💰 Achat: ${p.prix_achat} | Vente: ${p.prix_vente}${p.prix_revendeur?' | 🤝 Rev: '+p.prix_revendeur:''}\n`;
+      msg += `   📦 Stock: *${p.stock}* / ${p.stock_initial} initial\n`;
+      if (p.categorie) msg += `   🏷️ ${p.categorie}\n`;
+      msg += `\n`;
+    });
+    return sendMessage(chatId, msg, { reply_markup: menuProduits() });
+  }
+
   // ══ IA ══
   if (text === "🤖 IA") return sendMessage(chatId, `🤖 *Assistant IA*`, { reply_markup: menuIA() });
 
