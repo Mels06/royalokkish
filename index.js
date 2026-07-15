@@ -139,7 +139,7 @@ async function envoyerEmailConfirmationSimple(client, vente) {
       <div class="enc">
         <div class="et">🛒 Récapitulatif de votre achat</div>
         <div style="text-align:center;margin-bottom:14px;">
-          <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${(vente.prix_vente_normal || vente.prix_vente_unitaire) * vente.quantite} FCFA</div>
+          <div style="color:#C9A84C;font-size:28px;font-weight:bold;">${vente.montant_total} FCFA</div>
         </div>
         <table width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;color:#888;line-height:1.8;">
           <tr>
